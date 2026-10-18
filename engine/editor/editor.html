@@ -1,0 +1,2040 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>decks — design harness</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎬</text></svg>">
+<style>
+  /* Editor chrome — dark, so the slide canvas reads like an artboard. */
+  :root {
+    --bg: #16161a; --panel: #1f1f24; --line: #2e2e36; --txt: #e8e8ec;
+    --dim: #8b8b96; --acc: #2c40d3; --acc-hi: #bfe2fe; --warn: #f9e81e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; height: 100dvh; overscroll-behavior: none; }
+  body {
+    display: grid; grid-template-columns: 220px 1fr 288px; grid-template-rows: 44px 1fr 28px;
+    grid-template-areas: "top top top" "side canvas inspect" "status status status";
+    background: var(--bg); color: var(--txt);
+    font: 13px/1.45 "Helvetica Neue", Arimo, Helvetica, Arial, sans-serif;
+  }
+  button { font: inherit; color: inherit; background: none; border: 1px solid var(--line); padding: 4px 10px; cursor: pointer; }
+  button:hover { border-color: var(--dim); }
+  button.primary { background: var(--acc); border-color: var(--acc); font-weight: 700; }
+  button.primary.restore { background: var(--warn); border-color: var(--warn); color: #000; }
+  input, select { font: inherit; color: var(--txt); background: var(--bg); border: 1px solid var(--line); padding: 3px 6px; width: 100%; }
+  input[type="number"] { width: 58px; }
+  input[type="checkbox"] { width: auto; }
+
+  /* top bar */
+  #top { grid-area: top; display: flex; align-items: center; gap: 14px; padding: 0 14px; border-bottom: 1px solid var(--line); }
+  #top .brand { font-weight: 700; letter-spacing: -0.02em; white-space: nowrap; }
+  #top .deck-title { width: min(40vw, 420px); color: var(--dim); background: transparent; border-color: transparent; }
+  #top .deck-title:hover, #top .deck-title:focus { color: var(--txt); border-color: var(--line); outline: none; }
+  #top .ver { color: var(--dim); }
+  #top .ver b { color: var(--acc-hi); }
+  #top .grow { flex: 1; }
+  #presence { display: flex; align-items: center; gap: 5px; }
+  #presence .avatar { width: 26px; height: 26px; padding: 0; border-radius: 50%; border: 2px solid var(--panel);
+    color: #fff; display: grid; place-items: center; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+  #inspectBtn { display: none; }
+
+  /* slide list */
+  #side { grid-area: side; border-right: 1px solid var(--line); overflow-y: auto; padding: 10px; }
+  #side h3, #inspect h3 { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  #side h3:first-child { margin-top: 0; }
+  .locales { display: flex; gap: 6px; flex-wrap: wrap; }
+  .locales button.on { background: var(--acc); border-color: var(--acc); font-weight: 700; }
+  .slidelist { display: flex; flex-direction: column; gap: 4px; }
+  .slidelist button { text-align: left; display: flex; justify-content: space-between; align-items: center; }
+  .slidelist button.on { border-color: var(--acc-hi); color: var(--acc-hi); }
+  .slidelist button.git { border-style: dashed; }
+  .slidelist .dot { color: var(--warn); font-weight: 700; }
+
+
+  /* canvas */
+  #canvas { grid-area: canvas; overflow: auto; display: grid; place-items: center; padding: 24px; }
+  #frameWrap { width: 1280px; height: 720px; transform-origin: top left; box-shadow: 0 8px 40px rgba(0,0,0,.5); }
+  /* asset editor — edit the design harness's own files (guidance, tokens…) */
+  #assetPane { display: none; width: 100%; height: 100%; flex-direction: column; gap: 8px; }
+  #assetPane .assetbar { display: flex; align-items: center; gap: 12px; }
+  #assetPane .path { font: 12px/1 "SF Mono", Menlo, Consolas, monospace; color: var(--acc-hi); }
+  #assetPane .problems { margin-left: auto; color: var(--dim); font-size: 11px; }
+  #assetEditor, #assetText { flex: 1; width: 100%; min-height: 0; background: var(--panel);
+    border: 1px solid var(--line); }
+  #assetText { display: none; resize: none; color: var(--txt); padding: 14px;
+    font: 13px/1.55 "SF Mono", Menlo, Consolas, monospace; }
+  #assetText.fallback { display: block; }
+  #assetText:focus { outline: 1px solid var(--acc); }
+  body.asset-mode { grid-template-columns: 220px 1fr 0; }
+  body.asset-mode #frameWrap, body.asset-mode #inspect, body.asset-mode #zoomLabel { display: none; }
+  body.asset-mode #assetPane { display: flex; }
+  body.asset-mode #canvas { place-items: stretch; }
+  #guidance button.on { border-color: var(--acc-hi); color: var(--acc-hi); }
+  #guidance .dot { color: var(--warn); font-weight: 700; }
+  #frame { width: 1280px; height: 720px; border: 0; display: block; background: #fff; }
+
+  /* inspector */
+  #inspect { grid-area: inspect; border-left: 1px solid var(--line); overflow-y: auto; padding: 12px; }
+  #inspect .empty { color: var(--dim); margin-top: 8px; }
+  .crumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .crumbs button { padding: 2px 6px; font-size: 11px; color: var(--dim); }
+  .crumbs button:last-child { color: var(--acc-hi); border-color: var(--acc-hi); }
+  .row { display: flex; align-items: center; gap: 6px; margin: 5px 0; }
+  .row label { width: 74px; color: var(--dim); flex: none; }
+  .row .unit { color: var(--dim); font-size: 11px; }
+  .seg { display: flex; gap: 0; }
+  .seg button { padding: 3px 8px; border-right-width: 0; }
+  .seg button:last-child { border-right-width: 1px; }
+  .seg button.on { background: var(--acc); border-color: var(--acc); }
+  .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin: 4px 0 8px; }
+  .swatches button { padding: 0; height: 22px; border: 1px solid var(--line); position: relative; }
+  .swatches button.on { outline: 2px solid var(--acc-hi); outline-offset: 1px; }
+  .swatches button.none { background: repeating-linear-gradient(45deg, #333 0 4px, #222 4px 8px); }
+  .box4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+  .box4 input { width: 100%; }
+  .box4 span { font-size: 10px; color: var(--dim); text-align: center; display: block; }
+  .scope { border: 1px solid var(--line); padding: 6px 8px; margin: 8px 0; display: flex; gap: 8px; align-items: center; }
+  .scope.on { border-color: var(--warn); color: var(--warn); }
+  .stamp { margin-top: 10px; padding: 6px 8px; border: 1px solid var(--warn); color: var(--warn); font-size: 11px; }
+  .hint { color: var(--dim); font-size: 11px; margin-top: 10px; }
+
+  dialog { width: min(520px, calc(100vw - 32px)); color: var(--txt); background: var(--panel); border: 1px solid var(--line); padding: 18px; }
+  dialog::backdrop { background: rgba(0,0,0,.65); }
+  dialog h2 { margin: 0 0 14px; font-size: 18px; }
+  dialog .share-form { display: grid; grid-template-columns: 110px 1fr 100px auto; gap: 6px; margin: 12px 0; }
+  dialog .share-list { display: flex; flex-direction: column; gap: 6px; }
+  dialog.tool-dialog { width: min(820px, calc(100vw - 32px)); }
+  #toolCode { width: 100%; height: 60vh; font: 12px/1.45 ui-monospace, monospace; color: var(--txt); background: var(--bg, #111); border: 1px solid var(--line); padding: 10px; }
+  .tool-own { display: flex; gap: 6px; align-items: center; font-size: 11px; opacity: .8; padding: 2px 0; }
+  .tool-own span { flex: 1; }
+  .tool-own button { padding: 2px 6px; font-size: 11px; }
+  dialog .share-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
+  dialog .actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+
+  /* status bar */
+  #status { grid-area: status; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
+  #status .msg.warn { color: var(--warn); }
+
+  /* Phones and small tablets keep the artboard primary. Slides/locales become
+     a large bottom navigation strip; the inspector is an explicit drawer. */
+  @media (max-width: 900px) {
+    body { grid-template-columns: minmax(0, 1fr); grid-template-rows: 58px minmax(0, 1fr) 92px 28px;
+      grid-template-areas: "top" "canvas" "side" "status"; overflow: hidden; }
+    #top { gap: 8px; padding: 0 max(8px, env(safe-area-inset-left)); overflow-x: auto; }
+    #top .brand, #top .deck-title, #top .ver, #presence { display: none; }
+    #top button { min-width: 48px; min-height: 44px; padding: 8px 12px; white-space: nowrap; }
+    #top .grow { min-width: 0; }
+    #inspectBtn { display: inline-block; }
+    #side { border: 0; border-top: 1px solid var(--line); padding: 7px max(8px, env(safe-area-inset-right)) 7px max(8px, env(safe-area-inset-left));
+      display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 8px; overflow: hidden; }
+    #side > h3 { display: none; }
+    #side > #guidance, #side > #tools, #side > #historyScope, #side > #history { display: none; }
+    #side .locales { flex-wrap: nowrap; align-items: stretch; overflow-x: auto; }
+    #side .locales button, #side .slidelist button { min-width: 48px; min-height: 48px; padding: 8px 12px; }
+    #slidelist { flex-direction: row; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
+    #slidelist button { flex: 0 0 auto; scroll-snap-align: center; }
+    #canvas { padding: 8px; overflow: hidden; touch-action: pan-y; }
+    #inspect { display: block; position: fixed; z-index: 20; top: 58px; right: 0; bottom: 28px;
+      width: min(380px, 94vw); background: var(--panel); box-shadow: -10px 0 30px rgba(0,0,0,.55);
+      transform: translateX(105%); transition: transform 160ms ease; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+    body.inspect-open #inspect { transform: translateX(0); }
+    body.asset-mode { grid-template-columns: minmax(0, 1fr); }
+    body.asset-mode #side { display: none; }
+    body.asset-mode { grid-template-rows: 58px minmax(0, 1fr) 28px; grid-template-areas: "top" "canvas" "status"; }
+    #assetPane .assetbar { flex-wrap: wrap; }
+    #status { padding: 0 max(8px, env(safe-area-inset-left)); white-space: nowrap; overflow: hidden; }
+    #status > span:last-child { display: none; }
+    dialog .share-form { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 900px) and (orientation: landscape) {
+    body { grid-template-rows: 52px minmax(0, 1fr) 72px 24px; }
+    #top { min-height: 52px; }
+    #top button { min-height: 42px; }
+    #side .locales button, #side .slidelist button { min-height: 44px; }
+    #inspect { top: 52px; bottom: 24px; }
+    #status { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+  <div id="top">
+    <span class="brand">🎬 decks</span>
+    <input class="deck-title" id="deckLabel" aria-label="Presentation title" maxlength="200">
+    <span class="grow"></span>
+    <div id="presence"></div>
+    <span class="ver" id="zoomLabel"></span>
+    <button id="presentBtn">Present</button>
+    <button id="inspectBtn" aria-expanded="false">Inspect</button>
+    <button id="shareBtn">Share</button>
+    <button id="saveBtn" class="primary">Save (⌘S)</button>
+  </div>
+
+  <div id="side">
+    <h3>Locale</h3>
+    <div class="locales" id="locales"></div>
+    <h3>Slides</h3>
+    <div class="slidelist" id="slidelist"></div>
+    <h3>Guidance</h3>
+    <div class="slidelist" id="guidance"></div>
+    <h3>Tools</h3>
+    <div class="slidelist" id="tools"><span class="hint">none — ask your agent to build one</span></div>
+    <h3>History</h3>
+    <div class="locales" id="historyScope"><button class="on" data-scope="slide">This slide</button><button data-scope="all">All activity</button></div>
+    <div class="slidelist" id="history"><span class="hint">no edits yet</span></div>
+  </div>
+
+  <div id="canvas"><div id="frameWrap"><iframe id="frame"></iframe></div>
+    <div id="assetPane">
+      <div class="assetbar"><div class="path" id="assetPath"></div><div class="problems" id="assetProblems"></div></div>
+      <div id="assetEditor"></div><textarea id="assetText" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div id="inspect"><div class="empty">Click an element on the slide to inspect it.<br><br>
+    Double-click to edit text.<br>Arrow keys to nudge (⇧ = 10px).<br>⌘Z to undo, Esc to deselect.</div></div>
+
+  <dialog id="toolDialog" class="tool-dialog">
+    <h3 id="toolDialogTitle">Edit tool</h3>
+    <textarea id="toolCode" spellcheck="false"></textarea>
+    <div class="actions"><button type="button" id="toolCancel">Cancel</button><button type="button" class="primary" id="toolSave">Save</button></div>
+  </dialog>
+  <dialog id="shareDialog">
+    <h2>Share “<span id="shareTitle"></span>”</h2>
+    <div class="share-list" id="shareList"></div>
+    <form class="share-form" id="shareForm">
+      <select id="shareType"><option value="user">Person</option><option value="domain">Domain</option><option value="anyone">Anyone signed in</option></select>
+      <input id="shareTarget" type="text" placeholder="email@example.com" required>
+      <select id="shareRole"><option value="viewer">Viewer</option><option value="commenter">Commenter</option><option value="editor">Editor</option></select>
+      <button class="primary" type="submit">Share</button>
+    </form>
+    <p class="agents-note">Agents: anyone this deck is shared with can let their coding agent edit it for them. Setup: <a href="/agents" target="_blank" rel="noopener">/agents</a> on this host. Agents never overwrite text a person has edited.</p>
+    <div class="actions"><button type="button" id="shareClose">Done</button></div>
+  </dialog>
+
+  <div id="status">
+    <span id="statusMsg" class="msg">ready</span>
+    <span class="grow" style="flex:1"></span>
+    <span>edits are stamped with who made them · agents can't change people's edits · History previews show what Restore changes: green comes back, red goes</span>
+  </div>
+
+<script>
+"use strict";
+/* decks design harness — editor shell.
+ * Loads the real slide HTML in an iframe (same origin), attaches selection /
+ * text-editing / nudge handlers from the parent, constrains styling to theme
+ * tokens, and serializes the cleaned DOM back to the slide file on save.
+ *
+ * i18n mode (manifest.locales is an array): ONE structural HTML per slide.
+ * Every locale renders via ?lang= + engine/i18n.js; keyed HTML stays empty.
+ *  - structure/style edits → the shared HTML (all locales, by construction)
+ *  - text edits → slides/i18n/<locale>.js for the selected locale
+ *  - "this locale only" style scope → html[lang=..] rule in the slide <style>
+ * Provenance: data-modified + data-author on elements and catalog metadata.
+ * Author absent ⇒ agent edit; present ⇒ human-finalized.
+ */
+
+const $ = (s, el = document) => el.querySelector(s);
+const frame = $("#frame");
+const editorSessionId = crypto.randomUUID();
+
+// ---- state ----
+let deckId, manifest, documentInfo = {}, owner, user = {}, permission = {}, cssFiles = [], themeFiles = [], themeLocal = false, languageTools = {}, collaboration = {};
+let canEdit = false;
+let collab = null, presenceStates = new Map(), historyTimer = null;
+let guidance = {};                   // themes/<theme>/guidance.json — machine-checkable rules
+let isI18n = false, defaultLocale = "en", localeIds = [];
+let locale, slideName;               // current selection in sidebar
+let sel = null;                      // selected element inside the iframe
+let editing = null;                  // element currently contenteditable
+let editingUndoEntry = null;
+let resizeGeometry, updateResizeHandles = () => {};
+let scoped = false;                  // style edits target current locale only
+let tokens = [];                     // [{name, value, resolved}] colour tokens
+const dirty = new Set();             // "locale/slide" keys with unsaved edits
+const i18nEdited = new Set();        // data-i18n keys text-edited in the selected locale
+let editSerial = 0, pendingSave = null;
+
+const undoStack = [];                // {slide, ovr} snapshots
+const redoStack = [];
+let previewId = null;                // history entry currently previewed on the canvas
+let previewBase = null;              // the current slide, kept to diff a history preview against
+let historyScope = "slide";
+let slideRevision = Date.now(), warmGeneration = 0; // stable within this session, fresh after reload
+
+const EDIT_STYLE_ID = "__ed-style";
+const HOVER = "__ed-hover", SEL = "__ed-sel";
+
+$("#historyScope").onclick = (event) => {
+  const button = event.target.closest("[data-scope]");
+  if (!button) return;
+  historyScope = button.dataset.scope;
+  $("#historyScope").querySelectorAll("button").forEach((item) => item.classList.toggle("on", item === button));
+  renderHistory();
+};
+
+const slideFile = (loc, name) => {
+  if (isI18n) return `decks/${deckId}/slides/${name}.html`;
+  const sub = manifest.locales[loc];
+  return `decks/${deckId}/slides/${sub === "." ? "" : sub + "/"}${name}.html`;
+};
+const key = () => `${locale}/${slideName}`;
+
+const status = (msg, warn = false) => {
+  const el = $("#statusMsg");
+  el.textContent = msg;
+  el.className = "msg" + (warn ? " warn" : "");
+};
+
+function setDocumentTitle(title) {
+  documentInfo.title = title;
+  document.title = title;
+  $("#deckLabel").value = title;
+}
+async function saveDocumentTitle() {
+  if (!canEdit) return;
+  const title = $("#deckLabel").value.trim();
+  if (!title || title === documentInfo.title) { $("#deckLabel").value = documentInfo.title; return; }
+  const response = await fetch("/api/document", {
+    method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title }),
+  });
+  if (!response.ok) { status((await response.json()).error, true); $("#deckLabel").value = documentInfo.title; return; }
+  setDocumentTitle((await response.json()).title);
+  status("presentation title saved outside git");
+}
+$("#deckLabel").onchange = saveDocumentTitle;
+$("#deckLabel").onkeydown = (event) => {
+  if (event.key === "Enter") event.currentTarget.blur();
+  if (event.key === "Escape") { event.currentTarget.value = documentInfo.title; event.currentTarget.blur(); }
+};
+
+async function renderShareDialog() {
+  const list = $("#shareList");
+  $("#shareTitle").textContent = documentInfo.title;
+  $("#shareForm").hidden = !permission.canShare;
+  list.innerHTML = "";
+  const addRow = (label, role, id = null) => {
+    const row = document.createElement("div"); row.className = "share-row";
+    const who = document.createElement("span"); who.textContent = label;
+    const level = document.createElement("span"); level.textContent = role;
+    row.append(who, level);
+    if (id) {
+      const remove = document.createElement("button"); remove.textContent = "Remove";
+      remove.onclick = async () => { await fetch(`/api/access/${encodeURIComponent(id)}`, { method: "DELETE" }); renderShareDialog(); };
+      row.appendChild(remove);
+    }
+    list.appendChild(row);
+  };
+  if (permission.canShare) {
+    const response = await fetch("/api/access");
+    if (!response.ok) { status("could not load sharing settings", true); return; }
+    const access = await response.json();
+    addRow(`${access.owner.name || access.owner.email} · ${access.owner.email || "local"}`, "Owner");
+    for (const entry of access.permissions) {
+      const target = entry.principal.email || entry.principal.domain || "Anyone signed in with link";
+      addRow(target, entry.role, entry.id);
+    }
+  }
+}
+function setInspectorOpen(open) {
+  document.body.classList.toggle("inspect-open", open);
+  $("#inspectBtn").setAttribute("aria-expanded", String(open));
+  $("#inspectBtn").textContent = open ? "Close" : "Inspect";
+}
+$("#presentBtn").onclick = async () => {
+  stopEditing();
+  // Flush the current locale before navigating away from the debounced room.
+  if (i18nEdited.size) dirty.add(key());
+  if (dirty.has(key()) && !(await saveCurrent())) return;
+  const query = new URLSearchParams({ mode: "present", lang: locale || manifest.defaultLocale || "en" });
+  location.href = `${location.pathname}?${query}`;
+};
+$("#inspectBtn").onclick = () => setInspectorOpen(!document.body.classList.contains("inspect-open"));
+$("#shareBtn").onclick = async () => { await renderShareDialog(); $("#shareDialog").showModal(); };
+$("#shareClose").onclick = () => $("#shareDialog").close();
+$("#toolCancel").onclick = () => $("#toolDialog").close();
+$("#shareType").onchange = (event) => {
+  const input = $("#shareTarget"), needed = event.target.value !== "anyone";
+  input.hidden = !needed; input.required = needed;
+  input.placeholder = event.target.value === "domain" ? "example.com" : "email@example.com";
+};
+$("#shareForm").onsubmit = async (event) => {
+  event.preventDefault();
+  const type = $("#shareType").value, target = $("#shareTarget").value.trim();
+  const body = { type, role: $("#shareRole").value };
+  if (type === "user") body.email = target;
+  if (type === "domain") body.domain = target;
+  const response = await fetch("/api/access", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!response.ok) { status((await response.json()).error, true); return; }
+  $("#shareTarget").value = ""; renderShareDialog();
+};
+
+// ---- boot ----
+(async () => {
+  ({ resizeGeometry } = await import("/engine/editor/resize.mjs"));
+  const info = await (await fetch("/api/deck")).json();
+  ({ deckId, manifest, document: documentInfo = {}, owner, user = {}, permission = {}, cssFiles = [], themeFiles = [], themeLocal = false, languageTools = {}, collaboration = {} } = info);
+  canEdit = permission.role === "owner" || permission.role === "editor";
+  isI18n = Array.isArray(manifest.locales);
+  localeIds = isI18n ? manifest.locales : Object.keys(manifest.locales);
+  defaultLocale = manifest.defaultLocale || localeIds[0];
+  locale = defaultLocale;
+  slideName = manifest.slides.includes(sessionStorage.getItem("decks_new_slide"))
+    ? sessionStorage.getItem("decks_new_slide") : manifest.slides[0];
+  sessionStorage.removeItem("decks_new_slide");
+  owner = new URLSearchParams(location.search).get("user") || owner;
+  if (!owner) owner = user.name || "designer";
+  setDocumentTitle(documentInfo.title || manifest.name.replace(/[_-]+/g, " "));
+  $("#deckLabel").readOnly = !canEdit;
+  $("#shareBtn").textContent = permission.canShare ? "Share" : "Agents";
+  if (permission.privateOnly) {
+    $("#shareType").value = "user"; $("#shareType").disabled = true;
+    $("#shareTarget").placeholder = "person@example.com";
+  }
+  await loadTokens();
+  await loadGuidance();
+  await connectCollaboration();
+  renderSidebar();
+  renderGuidanceList();
+  loadSlide();
+  setTimeout(warmSlides, 250);
+  loadTools();
+  watchForReloads();
+  bindHorizontalSwipe($("#canvas"));
+  addEventListener("resize", fitCanvas);
+  addEventListener("orientationchange", () => setTimeout(fitCanvas, 50));
+})();
+
+async function loadTokens() {
+  // Parse --ct-* tokens from the theme, plus deck-scoped extensions from the
+  // deck's own CSS — decks may EXTEND the palette (explicit, reviewable
+  // variants), but the inspector never offers a colour outside a token.
+  const sources = [{ url: `/themes/${manifest.theme}/tokens.css`, scope: "theme" }];
+  for (const f of cssFiles) sources.push({ url: `/decks/${deckId}/slides/${f}`, scope: "deck" });
+  const raw = {}, scopeOf = {};
+  for (const s of sources) {
+    const res = await fetch(s.url);
+    if (!res.ok) continue;
+    for (const m of (await res.text()).matchAll(/(--ct-[\w-]+)\s*:\s*([^;]+);/g)) {
+      if (!(m[1] in raw)) scopeOf[m[1]] = s.scope;
+      raw[m[1]] = m[2].trim();
+    }
+  }
+  const resolve = (v, depth = 0) => {
+    const m = v && v.match(/^var\((--[\w-]+)\)$/);
+    return m && depth < 5 ? resolve(raw[m[1]], depth + 1) : v;
+  };
+  tokens = Object.entries(raw)
+    .map(([name, value]) => ({ name, value, resolved: resolve(value), scope: scopeOf[name] }))
+    .filter((t) => /^#|^rgb/.test(t.resolved)); // colour tokens only (fonts excluded)
+}
+
+async function loadGuidance() {
+  // Machine-checkable design rules. Blocked actions name the rule — the
+  // escape hatch is editing the rule file (an explicit, reviewable decision).
+  try {
+    const res = await fetch(`/themes/${manifest.theme}/guidance.json`);
+    guidance = res.ok ? await res.json() : {};
+  } catch { guidance = {}; }
+}
+
+function blockedBy(rule, detail) {
+  status(`blocked by guidance rule "${rule}" (${detail}) — to change it, edit themes/${manifest.theme}/guidance.json`, true);
+}
+
+async function connectCollaboration() {
+  if (!canEdit || !collaboration.enabled || !(await ensureMonaco())) return;
+  await new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/editor/collaboration.js";
+    script.onload = resolve; script.onerror = reject;
+    document.head.appendChild(script);
+  }).catch(() => null);
+  if (!window.DeckCollab) return;
+  const protocol = location.protocol === "https:" ? "wss" : "ws";
+  collab = window.DeckCollab.connect({
+    url: `${protocol}://${location.host}${collaboration.path}`,
+    deckId: documentInfo.id, name: owner,
+    onStatus(state) {
+      if (state === "disconnected") status("collaboration disconnected — reconnecting", true);
+      if (state === "synced") status("collaboration synced");
+    },
+    onCatalogs() {
+      applyCollaborativeCatalogs();
+      clearTimeout(historyTimer); historyTimer = setTimeout(renderHistory, 250);
+    },
+    onPresence(states) { presenceStates = states || new Map(); renderPresence(); },
+  });
+  collab.ready.then(() => { applyCollaborativeCatalogs(); updatePresence(); });
+}
+
+function elementReference(el) {
+  const keyed = el?.closest?.("[data-i18n]");
+  if (keyed) return `[data-i18n="${CSS.escape(keyed.getAttribute("data-i18n"))}"]`;
+  if (!el || !slideRoot().contains(el)) return null;
+  if (el === slideRoot()) return ".slide";
+  const parts = [];
+  for (let node = el; node && node !== slideRoot(); node = node.parentElement) {
+    const index = [...node.parentElement.children].indexOf(node) + 1;
+    parts.unshift(`${node.tagName.toLowerCase()}:nth-child(${index})`);
+  }
+  return `.slide > ${parts.join(" > ")}`;
+}
+
+function updatePresence() {
+  if (!collab) return;
+  collab.setPresence({
+    locale, slide: slideName, panel: assetFile ? `guidance:${assetFile}` : "canvas",
+    selection: assetFile ? null : elementReference(sel),
+  });
+}
+
+function renderPresence() {
+  const box = $("#presence");
+  box.innerHTML = "";
+  for (const [clientId, state] of presenceStates) {
+    const user = state.user || {}, location = state.location || {};
+    const color = /^#[0-9a-f]{6}$/i.test(user.color || "") ? user.color : "#2c40d3";
+    const button = document.createElement("button");
+    button.className = "avatar";
+    button.style.background = color;
+    button.textContent = (user.name || "?").slice(0, 2);
+    button.title = `${user.name || "designer"} · ${location.locale || "?"}/${location.slide || "?"} · ${location.panel || "?"}`;
+    if (clientId !== collab?.document.clientID && location.slide && location.locale)
+      button.onclick = () => switchTo(location.locale, location.slide);
+    box.appendChild(button);
+  }
+  renderRemoteSelections();
+}
+
+function renderRemoteSelections() {
+  const d = frame.contentDocument;
+  if (!d?.body) return;
+  d.querySelectorAll('[id^="__presence-"]').forEach((node) => node.remove());
+  for (const [clientId, state] of presenceStates) {
+    if (clientId === collab?.document.clientID) continue;
+    const location = state.location || {};
+    if (location.slide !== slideName || location.locale !== locale || !location.selection) continue;
+    let target;
+    try { target = d.querySelector(location.selection); } catch { continue; }
+    if (!target) continue;
+    const rect = target.getBoundingClientRect();
+    const user = state.user || {};
+    const color = /^#[0-9a-f]{6}$/i.test(user.color || "") ? user.color : "#2c40d3";
+    const overlay = d.createElement("div");
+    overlay.id = `__presence-${clientId}`;
+    overlay.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px;border:3px solid ${color};pointer-events:none;z-index:99999;`;
+    overlay.title = user.name || "designer";
+    d.body.appendChild(overlay);
+  }
+}
+
+function applyCollaborativeCatalogs() {
+  if (!collab || previewId || !frame.contentDocument) return;
+  frame.contentDocument.querySelectorAll("[data-i18n]").forEach((element) => {
+    // A normalized catalog echo must not replace the live editing DOM/caret.
+    if (editing && element.contains(editing)) return;
+    const value = collab.getCatalog(locale, element.getAttribute("data-i18n"));
+    if (value != null && element.innerHTML !== value) element.innerHTML = value;
+  });
+}
+
+// ---- sidebar ----
+function renderSidebar() {
+  const loc = $("#locales");
+  loc.innerHTML = "";
+  for (const l of localeIds) {
+    const b = document.createElement("button");
+    b.textContent = l + (isI18n && l === defaultLocale ? " ●" : "");
+    b.title = isI18n && l === defaultLocale ? "default output locale (text lives in its catalog, like every locale)" : "";
+    b.className = l === locale ? "on" : "";
+    b.onclick = () => switchTo(l, slideName);
+    loc.appendChild(b);
+  }
+  const list = $("#slidelist");
+  list.innerHTML = "";
+  manifest.slides.forEach((name, i) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>${String(i + 1).padStart(2, "0")} ${name}</span>` +
+      (dirty.has(`${locale}/${name}`) ? `<span class="dot">●</span>` : "");
+    b.className = name === slideName ? "on" : "";
+    b.onclick = () => switchTo(locale, name);
+    list.appendChild(b);
+  });
+  if (permission.role === "editor" || permission.role === "owner") {
+    const add = document.createElement("button");
+    add.innerHTML = `<span>＋ new slide</span>`;
+    add.title = "Create a blank slide (or type an existing slide's name to copy it)";
+    add.onclick = () => createSlide();
+    list.appendChild(add);
+    const dup = document.createElement("button");
+    dup.innerHTML = `<span>⧉ duplicate “${slideName}”</span>`;
+    dup.title = `Copy slide "${slideName}" with its text`;
+    dup.onclick = () => createSlide(slideName);
+    list.appendChild(dup);
+  }
+}
+
+async function createSlide(from) {
+  const name = (from ? prompt(`Copy "${from}" as slide name:`, `${from}-copy`)
+    : prompt("New slide name (lowercase letters, digits, dashes):")) || "";
+  if (!name.trim()) return;
+  const res = await fetch("/api/slides", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: name.trim(), ...(from ? { from } : {}) }),
+  });
+  if (!res.ok) { status(`could not create slide: ${(await res.json()).error}`, true); return; }
+  const { slide } = await res.json();
+  sessionStorage.setItem("decks_new_slide", slide);
+  status(`created slide "${slide}"`);
+  // The manifest SSE event reloads the editor, which opens the new slide.
+}
+
+async function switchTo(loc, name) {
+  if (!assetFile && !previewId && loc === locale && name === slideName) return;
+  if (assetFile && !(await closeAsset())) return;
+  if (dirty.has(key()) && !(await maybeSave())) return;
+  const localeChanged = loc !== locale;
+  locale = loc; slideName = name;
+  renderSidebar();
+  loadSlide();
+  if (localeChanged) setTimeout(warmSlides, 50);
+}
+
+// ---- guidance assets: the design harness's own files, editable in place ----
+// The escape-hatch UX: when a rule blocks you, the rule file is one click
+// away. Saving guidance.json / tokens.css hot-reloads every open editor.
+let assetFile = null, assetDirty = false;
+let monacoReady = null, codeEditor = null, codeModel = null, modelChange = null, assetBinding = null;
+let assetCollaborative = false, lintTimer = null, lintSeq = 0;
+
+function ensureMonaco() {
+  if (monacoReady) return monacoReady;
+  if (!languageTools.monaco) return Promise.resolve(false);
+  monacoReady = new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = "/vendor/monaco/vs/loader.js";
+    script.onload = () => {
+      window.require.config({ paths: { vs: "/vendor/monaco/vs" } });
+      window.require(["vs/editor/editor.main"], () => {
+        const m = window.monaco;
+        m.editor.defineTheme("decks-dark", {
+          base: "vs-dark", inherit: true, rules: [],
+          colors: { "editor.background": "#1f1f24", "editorLineNumber.foreground": "#696975" },
+        });
+        // VS Code's JSON language worker: schema-aware completion and static
+        // analysis for the machine-readable design constitution.
+        m.languages.json.jsonDefaults.setDiagnosticsOptions({
+          validate: true, allowComments: false, enableSchemaRequest: false,
+          schemas: [{
+            uri: "decks://schemas/guidance.json",
+            fileMatch: ["*/guidance.json"],
+            schema: {
+              type: "object", additionalProperties: true,
+              properties: {
+                $comment: { type: "string" }, colorSource: { enum: ["tokens-only"] },
+                accentsPerSlide: { type: "integer", minimum: 0 },
+                cornerRadiusPx: { type: "number", minimum: 0 },
+                ruleWeightPx: { type: "number", minimum: 0 },
+                minFontPx: { type: "number", minimum: 1 },
+                headingKerningMaxEm: { type: "number" },
+                jpSizeBridge: { type: "number", exclusiveMinimum: 0 },
+                bodyLeadingBonusPt: { type: "number" },
+              },
+            },
+          }],
+        });
+        codeEditor = m.editor.create($("#assetEditor"), {
+          theme: "decks-dark", automaticLayout: true, minimap: { enabled: false },
+          fontFamily: '"SF Mono", Menlo, Consolas, monospace', fontSize: 13,
+          lineHeight: 20, tabSize: 2, insertSpaces: true, detectIndentation: true,
+          tabCompletion: "on", suggestOnTriggerCharacters: true,
+          quickSuggestions: { other: true, comments: false, strings: true },
+          wordBasedSuggestions: "currentDocument", formatOnPaste: true,
+          formatOnType: true, scrollBeyondLastLine: false, readOnly: !canEdit, model: null,
+        });
+        codeEditor.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => doSave());
+        m.editor.onDidChangeMarkers((uris) => {
+          if (codeModel && uris.some((u) => u.toString() === codeModel.uri.toString())) updateProblems();
+        });
+        resolve(true);
+      }, () => resolve(false));
+    };
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+  return monacoReady;
+}
+
+const assetLanguage = (file) => file.endsWith(".css") ? "css" : file.endsWith(".json") ? "json" : "markdown";
+const assetValue = () => codeModel ? codeModel.getValue() : $("#assetText").value;
+
+function updateProblems() {
+  if (!codeModel || !window.monaco) { $("#assetProblems").textContent = ""; return; }
+  const markers = window.monaco.editor.getModelMarkers({ resource: codeModel.uri });
+  const errors = markers.filter((m) => m.severity === window.monaco.MarkerSeverity.Error).length;
+  const warnings = markers.filter((m) => m.severity === window.monaco.MarkerSeverity.Warning).length;
+  $("#assetProblems").textContent = !markers.length ? "✓ no problems" : `${errors} error${errors === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"}`;
+}
+
+function lintMarkdown() {
+  clearTimeout(lintTimer);
+  if (!codeModel || !assetFile?.endsWith(".md") || !languageTools.markdownlint) return;
+  const seq = ++lintSeq;
+  lintTimer = setTimeout(async () => {
+    const res = await fetch("/api/lint/markdown", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ file: assetFile, text: codeModel.getValue() }),
+    }).catch(() => null);
+    if (!res?.ok || seq !== lintSeq || !codeModel) return;
+    const { diagnostics = [] } = await res.json();
+    const markers = diagnostics.map((d) => {
+      const start = d.errorRange?.[0] || 1, length = d.errorRange?.[1] || 1;
+      return {
+        severity: d.severity === "warning" ? window.monaco.MarkerSeverity.Warning : window.monaco.MarkerSeverity.Error,
+        message: `${d.ruleNames?.[0] || "markdownlint"}: ${d.ruleDescription}${d.errorDetail ? ` — ${d.errorDetail}` : ""}`,
+        source: "markdownlint", code: d.ruleNames?.[0], startLineNumber: d.lineNumber,
+        startColumn: start, endLineNumber: d.lineNumber, endColumn: start + length,
+      };
+    });
+    window.monaco.editor.setModelMarkers(codeModel, "markdownlint", markers);
+    updateProblems();
+  }, 250);
+}
+
+async function mountAssetEditor(file, text) {
+  const enhanced = await ensureMonaco();
+  $("#assetText").classList.toggle("fallback", !enhanced);
+  $("#assetEditor").style.display = enhanced ? "block" : "none";
+  if (!enhanced) {
+    $("#assetText").value = text;
+    $("#assetText").readOnly = !canEdit;
+    $("#assetProblems").textContent = "plain text fallback — run npm install for language tools";
+    return;
+  }
+  modelChange?.dispose();
+  assetBinding?.destroy(); assetBinding = null;
+  codeModel?.dispose();
+  const uri = window.monaco.Uri.parse(`file:///${file}`);
+  codeModel = window.monaco.editor.createModel(text, assetLanguage(file), uri);
+  codeEditor.setModel(codeModel);
+  assetCollaborative = false;
+  if (collab) {
+    assetBinding = await collab.bindMonaco(file, codeModel, codeEditor);
+    assetCollaborative = true;
+  }
+  modelChange = codeModel.onDidChangeContent(() => {
+    if (!assetCollaborative && !assetDirty) { assetDirty = true; renderGuidanceList(); }
+    if (assetFile.endsWith(".md")) lintMarkdown();
+  });
+  codeEditor.focus();
+  if (file.endsWith(".md")) lintMarkdown(); else updateProblems();
+}
+
+function unmountAssetEditor() {
+  clearTimeout(lintTimer); lintSeq++;
+  modelChange?.dispose(); modelChange = null;
+  assetBinding?.destroy(); assetBinding = null; assetCollaborative = false;
+  codeEditor?.setModel(null);
+  codeModel?.dispose(); codeModel = null;
+  $("#assetProblems").textContent = "";
+}
+
+function renderGuidanceList() {
+  const box = $("#guidance");
+  box.innerHTML = "";
+  const assets = [
+    ...themeFiles.map((f) => ({ file: `themes/${manifest.theme}/${f}`, label: f })),
+    ...cssFiles.map((f) => ({ file: `decks/${deckId}/slides/${f}`, label: `${f} (deck)` })),
+  ];
+  if (!assets.length) { box.innerHTML = `<span class="hint">no theme files found</span>`; return; }
+  for (const a of assets) {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>${a.label}</span>` +
+      (assetFile === a.file && assetDirty ? `<span class="dot">●</span>` : "");
+    if (assetFile === a.file) b.classList.add("on");
+    b.title = a.file;
+    b.onclick = () => (assetFile === a.file ? closeAsset() : openAsset(a.file));
+    box.appendChild(b);
+  }
+  // A deck with its own theme copy can grow new guidance/token/css files;
+  // shared themes are read-only for exactly that reason.
+  if (themeLocal && (permission.role === "editor" || permission.role === "owner")) {
+    const add = document.createElement("button");
+    add.innerHTML = `<span>＋ new file</span>`;
+    add.title = "Add a file to this deck's own theme (GUIDANCE.md, tokens, css…)";
+    add.onclick = () => addThemeFile();
+    box.appendChild(add);
+  }
+}
+
+async function addThemeFile() {
+  const name = prompt("New theme file name (ends in .md, .json or .css):", "notes.md") || "";
+  const file = name.trim();
+  if (!file) return;
+  const rel = `themes/${manifest.theme}/${file}`;
+  const res = await fetch("/api/asset", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ file: rel, text: file.endsWith(".json") ? "{\n}\n" : "", author: owner }),
+  });
+  if (!res.ok) { status(`could not create ${rel}: ${(await res.json()).error}`, true); return; }
+  ({ themeFiles } = await (await fetch("/api/deck")).json());
+  status(`created ${rel}`);
+  await openAsset(rel);
+}
+async function openAsset(file) {
+  if (assetFile && !(await closeAsset())) return;
+  if (dirty.has(key()) && !(await maybeSave())) return;
+  const res = await fetch("/" + file);
+  if (!res.ok) { status(`could not load ${file}`, true); return; }
+  const text = await res.text();
+  $("#assetPath").textContent = file;
+  assetFile = file; assetDirty = false;
+  document.body.classList.add("asset-mode");
+  updateSaveBtn();
+  renderGuidanceList();
+  status(`loading ${file} language tools…`);
+  await mountAssetEditor(file, text);
+  updateSaveBtn();
+  updatePresence();
+  const formatHint = file.endsWith(".md") ? "" : " · format: Shift+Alt+F";
+  status(`editing ${file} — completion: Ctrl+Space${formatHint} · ${assetCollaborative ? "changes sync automatically" : "save: ⌘S"}`);
+}
+
+async function closeAsset() {
+  if (assetDirty && !confirm(`"${assetFile}" has unsaved changes — discard them?`)) return false;
+  unmountAssetEditor();
+  assetFile = null; assetDirty = false;
+  document.body.classList.remove("asset-mode");
+  updateSaveBtn();
+  renderGuidanceList();
+  loadSlide();
+  updatePresence();
+  return true;
+}
+
+async function saveAsset() {
+  const text = assetValue();
+  if (assetFile.endsWith(".json")) {
+    try { JSON.parse(text); }
+    catch (e) { status(`not saved — invalid JSON: ${e.message}`, true); return false; }
+  }
+  const res = await fetch("/api/asset", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ file: assetFile, text, author: owner }),
+  });
+  if (!res.ok) { status(`asset save failed: ${(await res.json()).error}`, true); return false; }
+  const result = await res.json();
+  assetDirty = false;
+  renderGuidanceList();
+  status(result.changed
+    ? `saved ${assetFile} — rules/tokens hot-reload everywhere`
+    : `no changes in ${assetFile} — history unchanged`);
+  return true;
+}
+
+async function maybeSave() {
+  if (confirm(`"${slideName}" (${locale}) has unsaved edits. Save before leaving?`)) {
+    return saveCurrent();
+  }
+  dirty.delete(key());
+  return true;
+}
+
+// ---- canvas ----
+function fitCanvas() {
+  const c = $("#canvas");
+  const pad = matchMedia("(max-width: 900px)").matches ? 16 : 48;
+  const s = Math.min((c.clientWidth - pad) / 1280, (c.clientHeight - pad) / 720, 1);
+  $("#frameWrap").style.transform = `scale(${s})`;
+  $("#frameWrap").style.width = 1280 * s + "px";   // so grid centering stays true
+  $("#frameWrap").style.height = 720 * s + "px";
+  $("#zoomLabel").textContent = Math.round(s * 100) + "%";
+  updateResizeHandles();
+}
+
+function slideUrl(loc, name, revision = slideRevision) {
+  const q = (isI18n ? `?lang=${loc}&` : "?") + "v=" + revision;
+  return "/" + slideFile(loc, name) + q;
+}
+
+// Warm slide documents and their image assets serially. Presentation mode
+// already loads every iframe up front; doing a low-priority equivalent here
+// makes later editor navigation instant without competing with the first slide.
+function warmSlides() {
+  const generation = ++warmGeneration;
+  const queue = manifest.slides.filter((name) => name !== slideName);
+  const next = () => {
+    if (generation !== warmGeneration || !queue.length) return;
+    const preloader = document.createElement("iframe");
+    preloader.tabIndex = -1; preloader.setAttribute("aria-hidden", "true");
+    preloader.style.cssText = "position:fixed;width:1px;height:1px;left:-10px;bottom:-10px;opacity:0;pointer-events:none";
+    const done = () => { preloader.remove(); setTimeout(next, 20); };
+    preloader.onload = done; preloader.onerror = done;
+    preloader.src = slideUrl(locale, queue.shift());
+    document.body.appendChild(preloader);
+  };
+  next();
+}
+
+function bindHorizontalSwipe(target) {
+  if (!target || target.__deckSwipe) return;
+  target.__deckSwipe = true;
+  let x = 0, y = 0, started = 0, source = null;
+  target.addEventListener("touchstart", (event) => {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    x = touch.clientX; y = touch.clientY; started = Date.now(); source = event.target;
+  }, { passive: true });
+  target.addEventListener("touchend", (event) => {
+    if (!started || !event.changedTouches.length) return;
+    const touch = event.changedTouches[0], dx = touch.clientX - x, dy = touch.clientY - y;
+    const elapsed = Date.now() - started; started = 0;
+    if (assetFile || editing || source?.closest?.("input,textarea,select,button,[contenteditable]")) return;
+    if (elapsed < 900 && Math.abs(dx) >= 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      const current = manifest.slides.indexOf(slideName);
+      const next = current + (dx < 0 ? 1 : -1);
+      if (next >= 0 && next < manifest.slides.length) switchTo(locale, manifest.slides[next]);
+    }
+  }, { passive: true });
+  target.addEventListener("touchcancel", () => { started = 0; }, { passive: true });
+}
+
+function loadSlide(fresh = false) {
+  stopEditing();
+  if (fresh) slideRevision = Date.now();
+  sel = null; editing = null; scoped = false;
+  undoStack.length = 0; redoStack.length = 0;
+  previewId = null;
+  updateSaveBtn();
+  i18nEdited.clear();
+  renderInspector();
+  frame.onload = () => {
+    instrument();
+    if (!previewId) applyCollaborativeCatalogs();
+    renderRemoteSelections(); fitCanvas();
+    if (!previewId) status(`editing ${key()}`);
+    else if (previewBase) showDiff();
+    for (const t of toolsById.values()) { try { t.slideLoaded?.(window.harness); } catch (e) { console.error(t.id, e); } }
+  };
+  frame.src = slideUrl(locale, slideName);
+  renderHistory();
+  updatePresence();
+}
+
+// ---- iframe instrumentation (from the parent; nothing injected but one <style>) ----
+function doc() { return frame.contentDocument; }
+function slideRoot() { return doc().querySelector(".slide") || doc().body; }
+
+function instrument() {
+  const d = doc();
+  if (d.__instrumented) return; // preview writes + onload can both call this
+  d.__instrumented = true;
+  const st = d.createElement("style");
+  st.id = EDIT_STYLE_ID;
+  st.textContent = `
+    .${HOVER} { outline: 1.5px dashed #2c40d3 !important; outline-offset: -1.5px; cursor: default; }
+    .${SEL} { outline: 2px solid #db23dd !important; outline-offset: -2px; }
+    [contenteditable] { outline: 2px solid #2c40d3 !important; cursor: text; }
+    a, iframe { pointer-events: none; }
+  `;
+  d.head.appendChild(st);
+
+  // An embedded browsing context otherwise consumes clicks before the editor
+  // can select/move/resize its container. Its content remains interactive in present.
+  const pickAt = (e) => {
+    if (e.target.closest?.('[id^="__"]')) return null;
+    const embedded = [...slideRoot().querySelectorAll("iframe")].find((el) => {
+      const r = el.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    });
+    return embedded || pickable(e.target);
+  };
+
+  let hovered = null;
+  d.addEventListener("mousemove", (e) => {
+    const t = pickAt(e);
+    if (hovered && hovered !== t) hovered.classList.remove(HOVER);
+    hovered = t;
+    if (t && t !== sel) t.classList.add(HOVER);
+  });
+  d.addEventListener("mouseleave", () => hovered && hovered.classList.remove(HOVER));
+  d.addEventListener("click", (e) => {
+    if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopPropagation(); return; }
+    if (editing?.contains(e.target)) return;
+    e.preventDefault();
+    if (editing && e.target !== editing) stopEditing();
+    select(pickAt(e));
+  }, true);
+  d.addEventListener("dblclick", (e) => {
+    if (editing?.contains(e.target)) return;
+    e.preventDefault();
+    const t = pickAt(e);
+    if (t) { select(t); startEditing(t); }
+  });
+  // Drag to move: the element follows the pointer, then lands as one nudge
+  // (one undo step, stamped like an arrow-key move).
+  let drag = null, suppressClick = false;
+  const handleSize = () => 7 / (frame.getBoundingClientRect().width / 1280 || 1);
+  const cursor = (edge) => ({ n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize",
+    nw: "nwse-resize", se: "nwse-resize", ne: "nesw-resize", sw: "nesw-resize" }[edge]);
+  const handles = d.createElement("div");
+  handles.id = "__ed-resize";
+  handles.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:100000";
+  d.body.appendChild(handles);
+  updateResizeHandles = () => {
+    handles.replaceChildren();
+    if (!canEdit || !sel?.isConnected || editing || insideSvg(sel)) return;
+    const r = sel.getBoundingClientRect(), size = Math.min(handleSize(), r.width / 3, r.height / 3);
+    for (const edge of ["n", "s", "e", "w", "nw", "ne", "sw", "se"]) {
+      const h = d.createElement("div");
+      h.dataset.resize = edge;
+      const corner = edge.length === 2;
+      const x = edge.includes("w") ? r.left : edge.includes("e") ? r.right : r.left + r.width / 2;
+      const y = edge.includes("n") ? r.top : edge.includes("s") ? r.bottom : r.top + r.height / 2;
+      h.style.cssText = `position:fixed;box-sizing:border-box;left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;background:white;border:1px solid #db23dd;pointer-events:auto;touch-action:none;cursor:${cursor(edge)}`;
+      // Invisible strips also make the full selected edges draggable, including embeds.
+      if (!corner) {
+        const strip = h.cloneNode();
+        strip.style.background = "transparent"; strip.style.border = "none";
+        if (edge === "n" || edge === "s") { strip.style.left = r.left + size + "px"; strip.style.width = Math.max(0, r.width - 2 * size) + "px"; }
+        else { strip.style.top = r.top + size + "px"; strip.style.height = Math.max(0, r.height - 2 * size) + "px"; }
+        handles.appendChild(strip);
+      }
+      handles.appendChild(h);
+    }
+  };
+  const edgeAt = (el, e) => {
+    if (!el?.isConnected) return "";
+    const r = el.getBoundingClientRect(), size = handleSize();
+    if (!r.width || !r.height) return "";
+    if (e.clientX < r.left - size || e.clientX > r.right + size || e.clientY < r.top - size || e.clientY > r.bottom + size) return "";
+    const sx = Math.min(size, r.width / 4), sy = Math.min(size, r.height / 4);
+    const horizontal = Math.abs(e.clientX - r.left) <= sx ? "w" : Math.abs(e.clientX - r.right) <= sx ? "e" : "";
+    const vertical = Math.abs(e.clientY - r.top) <= sy ? "n" : Math.abs(e.clientY - r.bottom) <= sy ? "s" : "";
+    return vertical + horizontal;
+  };
+  // Unselected boxes offer edge-resize only when they are large enough for the
+  // edge bands to leave a clickable middle, and never inside an SVG drawing:
+  // diagram internals (paths, foreignObject labels) are packed so tightly that
+  // their bands would otherwise swallow every click meant to select or edit.
+  const autoResizable = (el) => {
+    if (insideSvg(el)) return false;
+    const r = el.getBoundingClientRect(), size = handleSize();
+    return r.width >= 4 * size && r.height >= 4 * size;
+  };
+  const resizeTarget = (e) => {
+    if (e.target.dataset?.resize && sel) return { el: sel, edge: e.target.dataset.resize };
+    const selectedEdge = sel && !insideSvg(sel) && edgeAt(sel, e);
+    if (selectedEdge) return { el: sel, edge: selectedEdge };
+    for (let el = pickAt(e); el && slideRoot().contains(el); el = el.parentElement) {
+      if (!autoResizable(el)) continue;
+      const edge = edgeAt(el, e);
+      if (edge) return { el, edge };
+    }
+    // The outside half of an unselected border hits its parent, not the box.
+    for (const el of [...slideRoot().querySelectorAll("*")].reverse()) {
+      if (!autoResizable(el)) continue;
+      const edge = edgeAt(el, e);
+      if (edge) return { el, edge };
+    }
+    return null;
+  };
+  const cursorStyle = d.createElement("style");
+  cursorStyle.id = "__ed-cursor"; d.head.appendChild(cursorStyle);
+  d.addEventListener("pointermove", (e) => {
+    if (drag || !canEdit || editing) return;
+    const hit = resizeTarget(e);
+    cursorStyle.textContent = hit ? `* { cursor: ${cursor(hit.edge)} !important; }` : "";
+  });
+  d.addEventListener("pointerleave", () => { if (!drag) cursorStyle.textContent = ""; });
+  d.addEventListener("pointerdown", (e) => {
+    if (!canEdit || e.button !== 0 || editing) return;
+    suppressClick = false;
+    const hit = resizeTarget(e);
+    if (hit) {
+      e.preventDefault();
+      select(hit.el);
+      const el = hit.el, cs = d.defaultView.getComputedStyle(el), r = el.getBoundingClientRect();
+      const number = (v) => parseFloat(v) || 0;
+      drag = { ...hit, id: e.pointerId, x: e.clientX, y: e.clientY, moved: false,
+        style: el.getAttribute("style"), width: el.offsetWidth || r.width, height: el.offsetHeight || r.height,
+        scaleX: r.width / el.offsetWidth || 1, scaleY: r.height / el.offsetHeight || 1,
+        left: cs.position === "static" ? 0 : number(cs.left), top: cs.position === "static" ? 0 : number(cs.top),
+        position: cs.position === "static" ? "relative" : cs.position,
+        display: cs.display === "inline" ? "inline-block" : cs.display,
+        minWidth: Math.max(24, number(cs.minWidth), number(cs.paddingLeft) + number(cs.paddingRight) + number(cs.borderLeftWidth) + number(cs.borderRightWidth)),
+        minHeight: Math.max(24, number(cs.minHeight), number(cs.paddingTop) + number(cs.paddingBottom) + number(cs.borderTopWidth) + number(cs.borderBottomWidth)),
+        before: snapshot(), scoped: scoped && isI18n };
+      // Capture on the document: handles are redrawn during the gesture.
+      d.documentElement.setPointerCapture(e.pointerId);
+      return;
+    }
+    const t = pickAt(e);
+    if (t) drag = { el: t, x: e.clientX, y: e.clientY, id: e.pointerId, moved: false };
+  });
+  d.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    if (drag.edge) {
+      drag.moved = true;
+      e.preventDefault();
+      d.getSelection()?.removeAllRanges();
+      const box = resizeGeometry(drag, dx / drag.scaleX, dy / drag.scaleY, e.shiftKey && drag.el.tagName === "IMG");
+      drag.props = { "box-sizing": "border-box", display: drag.display, position: drag.position,
+        width: box.width + "px", height: box.height + "px", left: drag.left + box.x + "px", top: drag.top + box.y + "px",
+        right: "auto", bottom: "auto", "flex-shrink": "0" };
+      for (const [prop, value] of Object.entries(drag.props)) drag.el.style.setProperty(prop, value, "important");
+      updateResizeHandles();
+      return;
+    }
+    if (!drag.moved) {
+      drag.moved = true;
+      select(drag.el);
+      d.getSelection()?.removeAllRanges();
+      drag.el.setPointerCapture?.(drag.id);
+    }
+    e.preventDefault();
+    drag.el.style.translate = `${dx}px ${dy}px`;
+    updateResizeHandles();
+  });
+  const endDrag = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const gesture = drag;
+    const { el, moved, x, y } = gesture;
+    drag = null;
+    if (gesture.edge) {
+      if (d.documentElement.hasPointerCapture(e.pointerId)) d.documentElement.releasePointerCapture(e.pointerId);
+      if (gesture.style == null) el.removeAttribute("style"); else el.setAttribute("style", gesture.style);
+      if (moved && e.type !== "pointercancel") {
+        undoStack.push({ ...gesture.before, persist: true }); redoStack.length = 0;
+        if (undoStack.length > 50) undoStack.shift();
+        if (gesture.scoped) setScopedProps(el, { ...getScopedProps(el), ...Object.fromEntries(Object.entries(gesture.props).map(([p, v]) => [p, v + " !important"])) });
+        else for (const [prop, value] of Object.entries(gesture.props)) el.style.setProperty(prop, value);
+        touched(el);
+        if (!previewId) saveCurrent();
+      }
+      suppressClick = true; cursorStyle.textContent = "";
+      updateResizeHandles();
+      return;
+    }
+    if (!moved) return;
+    el.style.translate = "";
+    if (!el.getAttribute("style")) el.removeAttribute("style");
+    const dx = Math.round(e.clientX - x), dy = Math.round(e.clientY - y);
+    if (e.type !== "pointercancel" && (dx || dy)) nudge(el, dx, dy);
+    suppressClick = true;
+    updateResizeHandles();
+  };
+  d.addEventListener("pointerup", endDrag);
+  d.addEventListener("pointercancel", endDrag);
+  d.addEventListener("lostpointercapture", (e) => {
+    if (drag?.id === e.pointerId) endDrag({ pointerId: e.pointerId, type: "pointercancel" });
+  });
+  d.addEventListener("input", (e) => {
+    if (e.target !== editing) return;
+    editSerial++;
+    // Text inside a keyed element belongs to the current locale's catalog
+    // (all locales equal), not the shared HTML — record the key; provenance
+    // goes on the catalog entry, not the element.
+    const keyed = editing.closest("[data-i18n]");
+    if (isI18n && keyed && collab) {
+      i18nEdited.add(keyed.getAttribute("data-i18n"));
+      collab.setCatalog(locale, keyed.getAttribute("data-i18n"), editedClone(keyed).innerHTML, owner);
+      status("collaborative edit sent");
+    } else if (isI18n && keyed) {
+      i18nEdited.add(keyed.getAttribute("data-i18n"));
+      dirty.add(key());
+      renderSidebar();
+    } else {
+      touched(editing);
+    }
+  });
+  d.addEventListener("keydown", onKey);
+  bindHorizontalSwipe(d);
+  addEventListener("keydown", onKey); // works whether focus is in editor or iframe
+}
+
+// SVG internals (paths, foreignObject labels) are positioned by SVG attributes;
+// CSS box geometry on them fights the viewBox, so they are edited, not resized.
+function insideSvg(el) {
+  return !!el?.closest?.("svg") && el.tagName.toLowerCase() !== "svg";
+}
+
+function pickable(el) {
+  // Only elements inside the slide are selectable; never the slide root's parents.
+  if (!el || el.closest?.('[id^="__"]') || el === doc().documentElement || el === doc().body) return null;
+  return slideRoot().contains(el) && el !== slideRoot() ? el : slideRoot();
+}
+
+function onKey(e) {
+  const mod = e.metaKey || e.ctrlKey;
+  if (assetFile) { // asset mode: native textarea editing, only ⌘S is ours
+    if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); doSave(); }
+    return;
+  }
+  if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); doSave(); return; }
+  if (mod && e.key.toLowerCase() === "z" && !editing) {
+    e.preventDefault();
+    e.shiftKey ? redo() : undo();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === "y" && !editing) { e.preventDefault(); redo(); return; }
+  if (e.key === "Escape") {
+    if (editing) stopEditing(); else select(null);
+    return;
+  }
+  if (!sel || editing) return;
+  if ((e.key === "Delete" || e.key === "Backspace") && !e.target?.closest?.("input,textarea,select,[contenteditable]")) {
+    e.preventDefault();
+    if (!canEdit) return;
+    pushUndo();
+    const el = sel;
+    select(null);
+    el.remove();
+    editSerial++;
+    dirty.add(key());
+    renderSidebar();
+    status("element deleted — ⌘Z to undo, ⌘S to save");
+    return;
+  }
+  const arrows = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  if (arrows[e.key]) {
+    e.preventDefault();
+    const step = e.shiftKey ? 10 : 1;
+    nudge(sel, arrows[e.key][0] * step, arrows[e.key][1] * step);
+  }
+}
+
+// ---- selection ----
+function select(el) {
+  if (sel) sel.classList.remove(SEL);
+  sel = el;
+  if (sel) { sel.classList.remove(HOVER); sel.classList.add(SEL); }
+  renderInspector();
+  if (sel && matchMedia("(max-width: 900px)").matches) setInspectorOpen(true);
+  updatePresence();
+  updateResizeHandles();
+}
+
+function startEditing(el) {
+  if (!canEdit || el.matches("img,iframe,video,audio,canvas,svg")) return;
+  const keyed = isI18n && el.closest("[data-i18n]");
+  if (collab && keyed) {
+    collab.beginTextEdit();
+    editingUndoEntry = { catalog: { locale, key: keyed.getAttribute("data-i18n") } };
+    editingUndoEntry.beforeValue = collab.getCatalog(locale, editingUndoEntry.catalog.key);
+    undoStack.push(editingUndoEntry);
+    redoStack.length = 0;
+  } else pushUndo();
+  editing = el;
+  el.setAttribute("contenteditable", "plaintext-only");
+  el.focus();
+  updateResizeHandles();
+}
+function stopEditing() {
+  if (!editing) return;
+  normalizeLineBreaks(editing);
+  editing.removeAttribute("contenteditable");
+  editing = null;
+  collab?.endTextEdit();
+  if (editingUndoEntry && undoStack.at(-1) === editingUndoEntry &&
+      collab.getCatalog(editingUndoEntry.catalog.locale, editingUndoEntry.catalog.key) === editingUndoEntry.beforeValue) undoStack.pop();
+  editingUndoEntry = null;
+  applyCollaborativeCatalogs();
+  updateResizeHandles();
+}
+
+// plaintext-only editing inserts LF text, which white-space:normal collapses
+// outside editing. Build actual BR nodes, never interpret typed/pasted HTML.
+function normalizeLineBreaks(root) {
+  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) if (/[\r\n]/.test(walker.currentNode.data)) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const fragment = root.ownerDocument.createDocumentFragment();
+    node.data.split(/\r\n?|\n/).forEach((line, index) => {
+      if (index) fragment.appendChild(root.ownerDocument.createElement("br"));
+      fragment.appendChild(root.ownerDocument.createTextNode(line));
+    });
+    node.replaceWith(fragment);
+  }
+}
+function editedClone(el) {
+  const clone = cleanClone(el);
+  normalizeLineBreaks(clone);
+  return clone;
+}
+
+// ---- locale-scoped style overrides ----
+// Rules live in the slide's own <style data-locale-overrides>, one line per
+// element+locale: html[lang="ja"] [data-el="…"] { … } — part of ground truth.
+function overridesEl(create = false) {
+  let st = doc().querySelector("style[data-locale-overrides]");
+  if (!st && create) {
+    st = doc().createElement("style");
+    st.setAttribute("data-locale-overrides", "");
+    st.textContent = "\n";
+    doc().head.appendChild(st);
+  }
+  return st;
+}
+function elId(el) {
+  if (!el.getAttribute("data-el")) {
+    el.setAttribute("data-el",
+      el.getAttribute("data-i18n") || `${slideName}-${Math.random().toString(36).slice(2, 6)}`);
+  }
+  return el.getAttribute("data-el");
+}
+function scopedRule(el) {
+  return `html[lang="${locale}"] [data-el="${elId(el)}"]`;
+}
+function getScopedProps(el) {
+  const st = overridesEl();
+  if (!st) return {};
+  const m = st.textContent.match(new RegExp(escapeRe(scopedRule(el)) + "\\s*\\{([^}]*)\\}"));
+  const props = {};
+  if (m) for (const decl of m[1].split(";")) {
+    const [p, ...v] = decl.split(":");
+    if (p.trim()) props[p.trim()] = v.join(":").trim();
+  }
+  return props;
+}
+function setScopedProps(el, props) {
+  const st = overridesEl(true);
+  const rule = scopedRule(el);
+  const line = Object.entries(props).map(([p, v]) => `${p}: ${v};`).join(" ");
+  const re = new RegExp("^.*" + escapeRe(rule) + "\\s*\\{[^}]*\\}.*$\\n?", "m");
+  let txt = st.textContent.replace(re, "");
+  if (line) txt += `${rule} { ${line} }\n`;
+  st.textContent = txt;
+}
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// ---- edits ----
+const snapshot = () => ({ slide: cleanClone(slideRoot()).outerHTML, ovr: overridesEl()?.textContent ?? null });
+function restoreSnap(snap) {
+  stopEditing();
+  const previousText = isI18n && !collab ? new Map([...doc().querySelectorAll("[data-i18n]")]
+    .map((el) => [el.getAttribute("data-i18n"), el.innerHTML])) : null;
+  select(null);
+  slideRoot().outerHTML = snap.slide;
+  if (snap.ovr != null) overridesEl(true).textContent = snap.ovr;
+  else overridesEl()?.remove();
+  if (previousText) for (const el of doc().querySelectorAll("[data-i18n]")) {
+    const key = el.getAttribute("data-i18n");
+    if (previousText.get(key) !== el.innerHTML) i18nEdited.add(key);
+  }
+  applyCollaborativeCatalogs();
+}
+function pushUndo() {
+  undoStack.push(snapshot());
+  redoStack.length = 0; // a new edit invalidates the redo branch
+  if (undoStack.length > 50) undoStack.shift();
+}
+function undo() {
+  const snap = undoStack.pop();
+  if (!snap) { status("nothing to undo", true); return; }
+  if (snap.catalog) {
+    collab.undo(snap.catalog.locale, snap.catalog.key, owner); redoStack.push(snap); status("undo"); return;
+  }
+  redoStack.push({ ...snapshot(), persist: snap.persist });
+  restoreSnap(snap);
+  editSerial++;
+  dirty.add(key()); renderSidebar();
+  if (snap.persist) saveCurrent();
+  status("undo");
+}
+function redo() {
+  const snap = redoStack.pop();
+  if (!snap) { status("nothing to redo", true); return; }
+  if (snap.catalog) {
+    collab.redo(snap.catalog.locale, snap.catalog.key, owner); undoStack.push(snap); status("redo"); return;
+  }
+  undoStack.push({ ...snapshot(), persist: snap.persist });
+  restoreSnap(snap);
+  editSerial++;
+  dirty.add(key()); renderSidebar();
+  if (snap.persist) saveCurrent();
+  status("redo");
+}
+
+const isoNow = () => new Date().toISOString().replace(/\.\d{3}/, "");
+
+function touched(el) {
+  if (!canEdit) return;
+  editSerial++;
+  // Provenance: ONLY the harness writes these. In-file authorship means
+  // "a human finalized this" — agents may not revert (see AGENTS.md).
+  el.setAttribute("data-modified", isoNow());
+  el.setAttribute("data-author", owner);
+  dirty.add(key());
+  renderSidebar();
+  renderInspector();
+  updateResizeHandles();
+}
+
+function applyStyle(prop, value) {
+  if (!canEdit || !sel) return;
+  pushUndo();
+  if (scoped && isI18n) {
+    const props = getScopedProps(sel);
+    if (value === "" || value == null) delete props[prop];
+    else props[prop] = value;
+    setScopedProps(sel, props);
+  } else if (value === "" || value == null) sel.style.removeProperty(prop);
+  else sel.style.setProperty(prop, value);
+  touched(sel);
+}
+
+function nudge(el, dx, dy) {
+  if (!canEdit) return;
+  pushUndo();
+  const cs = frame.contentWindow.getComputedStyle(el);
+  const cur = (v) => (v === "auto" ? 0 : parseFloat(v) || 0);
+  if (scoped && isI18n) {
+    const props = getScopedProps(el);
+    props.position = "relative";
+    props.left = cur(props.left ?? cs.left) + dx + "px";
+    props.top = cur(props.top ?? cs.top) + dy + "px";
+    setScopedProps(el, props);
+  } else {
+    const from = (inline, computed) => inline ? parseFloat(inline) || 0 : cs.position === "static" ? 0 : cur(computed);
+    const left = from(el.style.left, cs.left), top = from(el.style.top, cs.top);
+    if (cs.position === "static") el.style.position = "relative";
+    el.style.left = left + dx + "px";
+    el.style.top = top + dy + "px";
+  }
+  touched(el);
+}
+
+// ---- inspector ----
+function renderInspector() {
+  const box = $("#inspect");
+  if (!sel) {
+    box.innerHTML = `<div class="empty">Click an element on the slide to inspect it.<br><br>
+      Drag edges/corners to resize (⇧ keeps image proportions).<br>Double-click to edit text.<br>Arrow keys to nudge (⇧ = 10px).<br>⌘Z to undo, Esc to deselect.</div>`;
+    return;
+  }
+  const cs = frame.contentWindow.getComputedStyle(sel);
+  const fontPx = parseFloat(cs.fontSize);
+  const lsEm = cs.letterSpacing === "normal" ? 0 : +(parseFloat(cs.letterSpacing) / fontPx).toFixed(3);
+  const lh = cs.lineHeight === "normal" ? "" : +(parseFloat(cs.lineHeight) / fontPx).toFixed(2);
+  const label = (el) => el.tagName.toLowerCase() +
+    (el.classList.length ? "." + [...el.classList].filter((c) => !c.startsWith("__ed")).join(".") : "");
+
+  // breadcrumb: slide root → selection
+  const chain = [];
+  for (let el = sel; el && el !== doc().body; el = el.parentElement) chain.unshift(el);
+
+  box.innerHTML = "";
+  const crumbs = document.createElement("div");
+  crumbs.className = "crumbs";
+  for (const el of chain) {
+    const b = document.createElement("button");
+    b.textContent = label(el);
+    b.onclick = () => select(el);
+    crumbs.appendChild(b);
+  }
+  box.appendChild(crumbs);
+
+  const add = (html) => box.insertAdjacentHTML("beforeend", html);
+
+  // -- scope: shared vs this-locale-only --
+  if (isI18n) {
+    add(`<div class="scope${scoped ? " on" : ""}"><input type="checkbox" id="iScope" ${scoped ? "checked" : ""}>
+      <label for="iScope" style="width:auto">style edits apply to <b>${locale}</b> only</label></div>`);
+    $("#iScope", box).onchange = (e) => { scoped = e.target.checked; renderInspector(); };
+  }
+
+  // -- type --
+  add(`<h3>Type</h3>
+    <div class="row"><label>Size</label><input type="number" id="iFont" value="${fontPx}" step="1"><span class="unit">px</span></div>
+    <div class="row"><label>Weight</label>
+      <div class="seg"><button data-w="400" class="${cs.fontWeight < 600 ? "on" : ""}">Reg</button>
+      <button data-w="700" class="${cs.fontWeight >= 600 ? "on" : ""}">Bold</button></div></div>
+    <div class="row"><label>Kerning</label><input type="number" id="iLs" value="${lsEm}" step="0.005"><span class="unit">em</span></div>
+    <div class="row"><label>Leading</label><input type="number" id="iLh" value="${lh}" step="0.05"><span class="unit">×</span></div>
+    <div class="row"><label>Align</label>
+      <div class="seg" id="iAlign">
+        ${["left", "center", "right"].map((a) =>
+          `<button data-a="${a}" class="${cs.textAlign === a ? "on" : ""}">${a[0].toUpperCase()}</button>`).join("")}
+      </div></div>`);
+
+  // -- colour (theme tokens only — the brand rule is structural, not advisory) --
+  add(`<h3>Text colour</h3><div class="swatches" id="iColor"></div>
+       <h3>Background</h3><div class="swatches" id="iBg"></div>`);
+  buildSwatches($("#iColor", box), "color", sel.style.color);
+  buildSwatches($("#iBg", box), "background", sel.style.background, true);
+
+  // -- box --
+  const n = (v) => Math.round(parseFloat(v)) || 0;
+  add(`<h3>Margin (px)</h3>
+    <div class="box4">${["Top", "Right", "Bottom", "Left"].map((s) =>
+      `<div><span>${s[0]}</span><input type="number" data-box="margin-${s.toLowerCase()}" value="${n(cs["margin" + s])}"></div>`).join("")}</div>
+    <h3>Padding (px)</h3>
+    <div class="box4">${["Top", "Right", "Bottom", "Left"].map((s) =>
+      `<div><span>${s[0]}</span><input type="number" data-box="padding-${s.toLowerCase()}" value="${n(cs["padding" + s])}"></div>`).join("")}</div>`);
+
+  // -- border: width per side, one colour --
+  const bw = (side) => cs[`border${side}Style`] === "none" ? 0 : n(cs[`border${side}Width`]);
+  add(`<h3>Border (px)</h3>
+    <div class="box4">${["Top", "Right", "Bottom", "Left"].map((s) =>
+      `<div><span>${s[0]}</span><input type="number" min="0" data-border="${s.toLowerCase()}" value="${bw(s)}"></div>`).join("")}</div>
+    <h3>Border colour</h3><div class="swatches" id="iBorder"></div>`);
+  buildSwatches($("#iBorder", box), "border-color", sel.style.borderColor);
+
+  // -- nudge offset + reset --
+  const off = (sel.style.left || sel.style.top)
+    ? `offset ${sel.style.left || "0px"}, ${sel.style.top || "0px"}` : "no offset";
+  add(`<h3>Position</h3>
+    <div class="row"><label>${off}</label><button id="iResetOff">reset</button></div>
+    <div class="row" style="margin-top:12px"><button id="iResetAll">clear all overrides on element</button></div>`);
+
+  if (sel.getAttribute("data-author") || sel.getAttribute("data-modified"))
+    add(`<div class="stamp">${sel.getAttribute("data-author")
+      ? "edited by " + sel.getAttribute("data-author") : "agent edit"} · ${
+      sel.getAttribute("data-modified") || ""}</div>`);
+  if (sel.closest("[data-i18n]"))
+    add(`<div class="hint">i18n key: <code>${sel.closest("[data-i18n]").getAttribute("data-i18n")}</code></div>`);
+  for (const t of toolsById.values()) {
+    if (t.inspector) try { t.inspector(box, window.harness); } catch (e) { console.error(t.id, e); }
+  }
+  add(`<div class="hint">All colours come from themes/${manifest.theme}/tokens.css. Need a new one? Add a token — never a hex.</div>`);
+
+  // wire events
+  $("#iFont", box).onchange = (e) => {
+    const min = guidance.minFontPx;
+    if (min && +e.target.value < min) { e.target.value = min; blockedBy("minFontPx", `digital minimum is ${min}px`); return; }
+    applyStyle("font-size", e.target.value + "px");
+  };
+  $("#iLs", box).onchange = (e) => applyStyle("letter-spacing", e.target.value + "em");
+  $("#iLh", box).onchange = (e) => applyStyle("line-height", e.target.value);
+  box.querySelectorAll("[data-w]").forEach((b) => (b.onclick = () => { applyStyle("font-weight", b.dataset.w); renderInspector(); }));
+  box.querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => { applyStyle("text-align", b.dataset.a); renderInspector(); }));
+  box.querySelectorAll("[data-box]").forEach((i) => (i.onchange = () => applyStyle(i.dataset.box, i.value + "px")));
+  box.querySelectorAll("[data-border]").forEach((i) => (i.onchange = () => {
+    const width = Math.max(0, +i.value || 0);
+    applyStyle(`border-${i.dataset.border}-style`, width ? "solid" : "none");
+    applyStyle(`border-${i.dataset.border}-width`, width + "px");
+  }));
+  $("#iResetOff", box).onclick = () => {
+    pushUndo();
+    if (scoped && isI18n) {
+      const props = getScopedProps(sel);
+      delete props.position; delete props.left; delete props.top;
+      setScopedProps(sel, props);
+    } else ["position", "left", "top"].forEach((p) => sel.style.removeProperty(p));
+    touched(sel);
+  };
+  $("#iResetAll", box).onclick = () => {
+    pushUndo();
+    sel.removeAttribute("style");
+    sel.removeAttribute("data-modified");
+    sel.removeAttribute("data-author");
+    if (isI18n) setScopedProps(sel, {});
+    editSerial++;
+    dirty.add(key());
+    renderSidebar(); renderInspector();
+  };
+}
+
+function buildSwatches(container, prop, current, allowNone = false) {
+  if (allowNone) {
+    const b = document.createElement("button");
+    b.className = "none" + (current === "" ? " on" : "");
+    b.title = "inherit / none";
+    b.onclick = () => { applyStyle(prop, ""); renderInspector(); };
+    container.appendChild(b);
+  }
+  for (const t of tokens) {
+    const b = document.createElement("button");
+    b.style.background = t.resolved;
+    b.title = t.name + (t.scope === "deck" ? " (deck variant)" : "");
+    if (t.scope === "deck") b.style.borderStyle = "dashed";
+    if (current === `var(${t.name})`) b.classList.add("on");
+    b.onclick = () => { applyStyle(prop, `var(${t.name})`); renderInspector(); };
+    container.appendChild(b);
+  }
+}
+
+// ---- save: strings → catalog, structure → slide file ----
+// Strip ALL editor/tool instrumentation: any "__"-prefixed class or id is
+// ephemeral by convention and must never reach the ground-truth files.
+function stripEphemera(root) {
+  root.querySelectorAll('[id^="__"], [data-diff-ghost]').forEach((el) => el.remove());
+  root.querySelectorAll("[class]").forEach((el) => {
+    [...el.classList].filter((c) => c.startsWith("__")).forEach((c) => el.classList.remove(c));
+    if (!el.classList.length) el.removeAttribute("class");
+  });
+  root.querySelectorAll("[contenteditable]").forEach((el) => el.removeAttribute("contenteditable"));
+}
+
+function cleanClone(el) {
+  const c = el.cloneNode(true);
+  stripEphemera(c);
+  [...c.classList ?? []].filter((x) => x.startsWith("__")).forEach((x) => c.classList.remove(x));
+  c.removeAttribute?.("contenteditable");
+  return c;
+}
+
+function serialize() {
+  stopEditing();
+  const clone = doc().documentElement.cloneNode(true);
+  clone.querySelector("script[data-i18n-catalog]")?.remove();
+  stripEphemera(clone);
+  // contenteditable sessions leave stray whitespace text nodes at the end of
+  // <body> — collapse them so they can't accumulate across saves
+  const body = clone.querySelector("body");
+  while (body?.lastChild?.nodeType === 3 && !body.lastChild.textContent.trim())
+    body.lastChild.remove();
+  if (isI18n) {
+    // The shared HTML holds structure only — text lives in catalogs. Always
+    // empty keyed nodes, including when restoring a pre-catalog git state.
+    clone.setAttribute("lang", defaultLocale);
+    clone.querySelectorAll("[data-i18n]").forEach((el) => { el.innerHTML = ""; });
+  }
+  return "<!DOCTYPE html>\n" + clone.outerHTML + "\n";
+}
+
+function saveCurrent() {
+  // A second release may happen while the first HTTP save is still in flight.
+  // Serialize saves, and never clear a newer edit's dirty state with an older ack.
+  if (pendingSave) return pendingSave.then((ok) => ok && saveCurrent());
+  pendingSave = persistCurrent().catch((error) => {
+    status(`save failed: ${error.message}`, true); return false;
+  }).finally(() => { pendingSave = null; });
+  return pendingSave;
+}
+async function persistCurrent() {
+  stopEditing();
+  if (!dirty.has(key())) { status("no changes to save"); return true; }
+  const revision = editSerial, savedKey = key();
+  const notes = [];
+  let changed = false;
+
+  // 1) text edits → merge into the current locale's catalog (all locales equal)
+  if (isI18n && i18nEdited.size) {
+    const entries = {}, meta = {};
+    for (const k of i18nEdited) {
+      const el = doc().querySelector(`[data-i18n="${k}"]`);
+      if (!el) continue;
+      entries[k] = editedClone(el).innerHTML;
+      meta[k] = { modified: isoNow(), author: owner };
+    }
+    const res = await fetch("/api/i18n", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ locale, entries, meta, author: owner }),
+    });
+    if (!res.ok) { status(`catalog save failed: ${(await res.json()).error}`, true); return false; }
+    const result = await res.json();
+    if (result.changed) {
+      changed = true;
+      notes.push(`${result.changedKeys.length} string(s) → i18n/${locale}.js`);
+    }
+    for (const k of Object.keys(entries)) {
+      const el = doc().querySelector(`[data-i18n="${CSS.escape(k)}"]`);
+      if (el && editedClone(el).innerHTML === entries[k]) i18nEdited.delete(k);
+    }
+  }
+
+  // 2) structure/style (shared across locales) → the slide HTML file
+  const file = slideFile(locale, slideName);
+  const res = await fetch("/api/save", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ file, html: serialize(), author: owner, clientId: editorSessionId }),
+  });
+  if (!res.ok) { status(`save failed: ${(await res.json()).error}`, true); return false; }
+  const slideResult = await res.json();
+  changed ||= slideResult.changed;
+  if (revision === editSerial) dirty.delete(savedKey);
+  renderHistory();
+
+  let warn = false;
+  if (!isI18n) {
+    const mirrors = localeIds.filter((l) => l !== locale);
+    if (mirrors.length) { notes.push(`remember the ${mirrors.join(", ")} mirror`); warn = true; }
+  }
+  status(changed
+    ? `saved ${file}` + (notes.length ? " — " + notes.join(" · ") : "")
+    : "no changes to save — history unchanged", warn);
+  renderSidebar();
+  return true;
+}
+
+$("#saveBtn").onclick = doSave;
+$("#assetText").addEventListener("input", () => {
+  if (!assetDirty) { assetDirty = true; renderGuidanceList(); }
+});
+addEventListener("beforeunload", (e) => { if (dirty.size || assetDirty) e.preventDefault(); });
+
+
+// ---- tools: hot-reloadable plugins (engine/editor/tools/*.js) ----
+// Contract: a tool file calls harness.registerTool({...}) — see tools/README.md.
+// Ephemeral instrumentation MUST use "__"-prefixed classes/ids: the serializer
+// strips those, so tools can never leak scaffolding into the ground truth.
+const toolsById = new Map();
+const activeTools = new Set();
+let pendingTools = [], agentToolList = [];
+
+window.harness = {
+  registerTool(tool) {
+    const old = toolsById.get(tool.id);
+    if (old) { try { old.dispose?.(this); } catch {} activeTools.delete(tool.id); }
+    toolsById.set(tool.id, tool);
+    renderTools();
+  },
+  // live state (getters, so tools always see current values)
+  get sel() { return sel; },
+  get tokens() { return tokens; },
+  get locale() { return locale; },
+  get defaultLocale() { return defaultLocale; },
+  get slideName() { return slideName; },
+  get manifest() { return manifest; },
+  get owner() { return owner; },
+  get frame() { return frame; },
+  // operations (all provenance/undo-aware — prefer these over raw DOM writes)
+  doc, slideRoot, select, applyStyle, nudge, touched, pushUndo, undo,
+  status, saveCurrent, refreshInspector: renderInspector,
+};
+
+async function loadTools() {
+  for (const t of toolsById.values()) { try { t.dispose?.(window.harness); } catch {} }
+  toolsById.clear();
+  activeTools.clear();
+  document.querySelectorAll("script[data-tool]").forEach((s) => s.remove());
+  const { builtin = [], agent = [] } = await (await fetch("/api/tools")).json();
+  // Agent-written tools run only after this person enables that exact version.
+  agentToolList = agent;
+  // Once a creator has enabled their own tool, their agent's updates load
+  // straight away; everyone else approves each new version.
+  const mine = (t) => t.owner && t.owner === String(user.email || "").toLowerCase();
+  for (const t of agent) if (mine(t) && localStorage.getItem(`decks-tool:${t.file}`)) localStorage.setItem(`decks-tool:${t.file}`, t.sha256);
+  const approved = agent.filter((t) => localStorage.getItem(`decks-tool:${t.file}`) === t.sha256);
+  pendingTools = agent.filter((t) => !approved.includes(t));
+  const sources = [
+    ...builtin.map((f) => [f, `/engine/editor/tools/${f}?t=${Date.now()}`]),
+    ...approved.map((t) => [t.file, `/api/tools/agent/${t.file}?sha256=${t.sha256}`]),
+  ];
+  await Promise.all(sources.map(([f, src]) => new Promise((done) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.setAttribute("data-tool", f);
+    s.onload = done; s.onerror = () => { status(`tool failed to load: ${f}`, true); done(); };
+    document.body.appendChild(s);
+  })));
+  renderTools();
+}
+
+function renderTools() {
+  const box = $("#tools");
+  box.innerHTML = "";
+  for (const t of pendingTools) {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>Enable ${t.file.replace(/\.js$/, "")}</span><span class="dot">${t.author}</span>`;
+    b.title = "Written by an agent. It will run in your editor with your permissions.";
+    b.onclick = () => {
+      window.open(`/api/tools/agent/${t.file}`, "_blank", "noopener");
+      if (!confirm(`"${t.file}" was written by ${t.author}. Once enabled it runs in your editor as you, and can edit and save with your name. The code opened in a new tab. Enable it?`)) return;
+      localStorage.setItem(`decks-tool:${t.file}`, t.sha256);
+      loadTools();
+    };
+    box.appendChild(b);
+  }
+  // The creator of an agent-made tool can edit or delete it here.
+  for (const t of agentToolList.filter((tool) => tool.owner && tool.owner === String(user.email || "").toLowerCase())) {
+    const row = document.createElement("div");
+    row.className = "tool-own";
+    const label = document.createElement("span"); label.textContent = t.file.replace(/\.js$/, "");
+    const edit = document.createElement("button"); edit.textContent = "Edit";
+    edit.onclick = async () => {
+      $("#toolDialogTitle").textContent = `Edit ${label.textContent}`;
+      $("#toolCode").value = await (await fetch(`/api/tools/agent/${t.file}`)).text();
+      $("#toolSave").onclick = async () => {
+        const response = await fetch(`/api/tools/agent/${t.file}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: $("#toolCode").value }) });
+        if (!response.ok) { status((await response.json()).error, true); return; }
+        $("#toolDialog").close(); status(`${label.textContent} saved — enable it again to run the new version`);
+      };
+      $("#toolDialog").showModal();
+    };
+    const remove = document.createElement("button"); remove.textContent = "Delete";
+    remove.onclick = async () => {
+      if (!confirm(`Delete the tool "${label.textContent}" for everyone?`)) return;
+      const response = await fetch(`/api/tools/agent/${t.file}`, { method: "DELETE" });
+      if (!response.ok) status((await response.json()).error, true);
+    };
+    row.append(label, edit, remove);
+    box.appendChild(row);
+  }
+  if (!toolsById.size && !pendingTools.length) {
+    box.innerHTML = `<span class="hint">none — ask your agent to build one</span>`;
+    return;
+  }
+  for (const t of toolsById.values()) {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>${t.name || t.id}</span>` + (activeTools.has(t.id) ? `<span class="dot">●</span>` : "");
+    if (activeTools.has(t.id)) b.classList.add("on");
+    b.onclick = () => {
+      try {
+        if (t.activate) { // long-lived toggle tool
+          if (activeTools.has(t.id)) { t.deactivate?.(window.harness); activeTools.delete(t.id); }
+          else { t.activate(window.harness); activeTools.add(t.id); }
+        } else t.run?.(window.harness); // one-shot action tool
+      } catch (e) { console.error(t.id, e); status(`tool "${t.id}" errored: ${e.message}`, true); }
+      renderTools();
+    };
+    box.appendChild(b);
+  }
+}
+
+function watchForReloads() {
+  const es = new EventSource("/api/events");
+  es.addEventListener("tools", () => { loadTools(); status("tools hot-reloaded"); });
+  es.addEventListener("document", (event) => {
+    const next = JSON.parse(event.data || "{}");
+    documentInfo.title = next.title || documentInfo.title;
+    document.title = documentInfo.title;
+    if (document.activeElement !== $("#deckLabel")) $("#deckLabel").value = documentInfo.title;
+  });
+  es.addEventListener("manifest", () => {
+    if (dirty.size) status("slides were added or reordered — save your edits, then reload the page", true);
+    else location.reload();
+  });
+  es.addEventListener("editor", () => {
+    if (dirty.size) status("editor updated on disk — save your edits, then reload the page", true);
+    else location.reload();
+  });
+  es.addEventListener("guidance", async () => {
+    await loadTokens(); await loadGuidance();
+    renderInspector();
+    if (!assetFile && !previewId && !dirty.size) loadSlide(true);
+    else status("theme guidance / tokens hot-reloaded");
+  });
+  // The live bridge: an agent (or anyone) edited a slide file outside the
+  // editor — reload the canvas so the designer sees it land, and put it in
+  // the history panel where it can be reverted.
+  es.addEventListener("slide", (e) => {
+    const { file, catalog = false, clientId } = JSON.parse(e.data || "{}");
+    // Our saved DOM is already current; an echo reload would lose undo/selection.
+    if (clientId === editorSessionId) { renderHistory(); return; }
+    renderHistory();
+    if (catalog && collab) return;
+    const current = slideFile(locale, slideName);
+    const isCatalog = catalog || file === `decks/${deckId}/slides/i18n/${locale}.js`;
+    if (file !== current && !isCatalog) return;
+    const changedFile = file || `i18n/${locale}.js`;
+    if (previewId) { status(`${changedFile} changed — you are previewing history, not reloading`, true); return; }
+    if (dirty.size) { status(`${changedFile} changed — you have unsaved edits, not reloading`, true); return; }
+    loadSlide(true);
+    status(`${changedFile} changed — canvas reloaded (revert from History)`);
+  });
+}
+
+// ---- history: journal-backed preview + restore ----
+// Click an older entry → the canvas PREVIEWS that state (nothing written) and
+// Save becomes Restore. Click the latest entry → back to the current state.
+function updateSaveBtn() {
+  const b = $("#saveBtn");
+  if (!canEdit) { b.textContent = "View only"; b.disabled = true; return; }
+  if (assetFile && assetCollaborative) b.textContent = "Synced";
+  else b.textContent = previewId && !assetFile ? "Restore (⌘S)" : "Save (⌘S)";
+  b.disabled = !!(assetFile && assetCollaborative);
+  b.classList.toggle("restore", !!previewId && !assetFile);
+}
+
+async function renderHistory() {
+  const box = $("#history");
+  const file = slideFile(locale, slideName);
+  const query = historyScope === "slide"
+    ? `?file=${encodeURIComponent(file)}&locale=${encodeURIComponent(locale)}` : "";
+  const { head = null, catalogHead = null, entries = [] } =
+    await (await fetch(`/api/history${query}`)).json().catch(() => ({}));
+  box.innerHTML = "";
+  if (!entries.length && !head && !catalogHead) { box.innerHTML = `<span class="hint">no edits yet</span>`; return; }
+
+  const row = (en, { label, hint, title, onclick, cls }) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<span>${label}</span><span class="hint">${hint}</span>`;
+    b.title = title;
+    if (cls) b.classList.add(cls);
+    if (en && en.id === previewId) b.classList.add("on");
+    if (onclick) b.onclick = onclick; else b.disabled = true;
+    box.appendChild(b);
+  };
+
+  if (historyScope === "all") {
+    entries.slice(0, 30).forEach((en) => {
+      const t = en.ts.replace(/^\d{4}-\d{2}-\d{2}T/, "").replace("Z", "");
+      const target = en.slides?.[0];
+      row(en, {
+        label: `${t} · ${en.author || "agent"}`,
+        hint: `${en.type} · ${en.file.split("/").pop()}`,
+        title: target ? `open ${target} and preview this edit` : en.file,
+        onclick: target ? () => {
+          historyScope = "slide";
+          $("#historyScope").querySelectorAll("button").forEach((button) => button.classList.toggle("on", button.dataset.scope === "slide"));
+          const match = en.file.match(/\/i18n\/([^/]+)\.js$/);
+          switchTo(match ? match[1] : locale, target); enterPreview(en);
+        } : null,
+      });
+    });
+    return;
+  }
+
+  entries.slice(0, 12).forEach((en, i) => {
+    const t = en.ts.replace(/^\d{4}-\d{2}-\d{2}T/, "").replace("Z", "");
+    const badge = en.commit ? ` · ${en.commit.hash}` : "";
+    row(en, {
+      label: `${en.type === "text" ? "Text · " : ""}${t} · ${en.author || "agent"}${i === 0 ? " (latest)" : ""}`,
+      hint: en.via + badge,
+      title: i === 0 ? "the current state — click to leave history preview" : `preview this slide after the edit (${en.ts})`,
+      onclick: () => (i === 0 ? exitPreview() : enterPreview(en)),
+    });
+  });
+
+  if (catalogHead) row(catalogHead, {
+    label: `Text at HEAD ${catalogHead.commit.hash}`,
+    hint: "git · this slide only",
+    title: "preview committed text for this slide without changing its layout or other slides",
+    onclick: () => enterPreview(catalogHead), cls: "git",
+  });
+  if (head) row(head, {
+    label: `Slide at HEAD ${head.commit.hash}`,
+    hint: "git · this slide only",
+    title: `preview committed structure and text for this slide (${head.commit.subject})`,
+    onclick: () => enterPreview(head), cls: "git",
+  });
+}
+
+// ---- history diff: what Restore would change, drawn on the preview canvas ----
+// Unchanged elements go greyscale; what Restore brings back is tinted green;
+// what it removes is shown as a red ghost where it is now. Colours come from a
+// luminance → green/red ramp, so black text tints too. Nothing here is saved.
+const DIFF_CSS = `
+  .__diff-same { filter: grayscale(1) !important; opacity: .45 !important; }
+  .__diff-add { filter: url(#__diff-add) !important; }
+  .__diff-del { filter: url(#__diff-del) !important; pointer-events: none; }`;
+const DIFF_DEFS = `<svg id="__diff-defs" width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="__diff-add" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.159 0.536 0.054 0 0  0.138 0.465 0.047 0 0.35  0.149 0.501 0.051 0 0.1  0 0 0 1 0"/></filter>
+  <filter id="__diff-del" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="0.117 0.393 0.040 0 0.45  0.170 0.572 0.058 0 0  0.166 0.558 0.056 0 0.02  0 0 0 1 0"/></filter></svg>`;
+const diffComparable = (el) => {
+  const c = el.cloneNode(true);
+  for (const x of [c, ...c.querySelectorAll("*")]) {
+    x.removeAttribute?.("data-author"); x.removeAttribute?.("data-modified");
+    [...(x.classList || [])].filter((k) => k.startsWith("__")).forEach((k) => x.classList.remove(k));
+    if (x.classList && !x.classList.length) x.removeAttribute("class");
+  }
+  return c;
+};
+const diffOwn = (el) => {
+  const c = diffComparable(el);
+  const attrs = [...c.attributes].map((a) => `${a.name}=${a.value}`).sort().join("|");
+  const text = [...c.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join("");
+  return `${c.tagName}|${attrs}|${text}`;
+};
+const diffKeys = (kids) => {
+  const seen = {};
+  // Stable identity first; otherwise tag + classes, so one removal doesn't shift every later sibling.
+  return kids.map((el) => {
+    const stable = el.getAttribute("data-i18n") || el.getAttribute("data-el") || el.id;
+    if (stable) return stable;
+    const sig = `${el.tagName}.${[...el.classList].filter((c) => !c.startsWith("__")).sort().join(".")}`;
+    return `${sig}#${seen[sig] = (seen[sig] ?? -1) + 1}`;
+  });
+};
+function diffTree(cur, next) {
+  if (diffComparable(cur).isEqualNode(diffComparable(next))) { next.classList.add("__diff-same"); return; }
+  if (diffOwn(cur) !== diffOwn(next) || !next.children.length) { next.classList.add("__diff-add"); return; }
+  const curKids = [...cur.children], nextKids = [...next.children];
+  const curKeys = diffKeys(curKids), nextKeys = diffKeys(nextKids);
+  const byKey = new Map(curKids.map((el, i) => [curKeys[i], el]));
+  nextKids.forEach((el, i) => {
+    const match = byKey.get(nextKeys[i]);
+    byKey.delete(nextKeys[i]);
+    if (match) diffTree(match, el); else el.classList.add("__diff-add");
+  });
+  for (const [k, gone] of byKey) {
+    const ghost = doc().importNode(gone, true);
+    ghost.setAttribute("data-diff-ghost", "");
+    ghost.classList.add("__diff-del");
+    next.insertBefore(ghost, nextKids[curKeys.indexOf(k)] || null);
+  }
+}
+function showDiff(attempt = 0) {
+  const w = frame.contentWindow;
+  if (!w || !previewId || !previewBase) return;
+  if (isI18n && !w.__i18nOriginals && attempt < 20) { setTimeout(() => showDiff(attempt + 1), 50); return; }
+  clearDiff();
+  const style = doc().createElement("style"); style.id = "__diff-style"; style.textContent = DIFF_CSS;
+  doc().head.appendChild(style);
+  doc().body.insertAdjacentHTML("beforeend", DIFF_DEFS);
+  diffTree(previewBase, slideRoot());
+  const changes = slideRoot().querySelectorAll(".__diff-add, .__diff-del").length + (slideRoot().matches(".__diff-add") ? 1 : 0);
+  status(changes ? `previewing: green comes back, red goes away if you Restore (${changes} change${changes === 1 ? "" : "s"})` : "previewing: no visible change on this slide");
+}
+function clearDiff() {
+  const d = doc();
+  if (!d) return;
+  d.querySelectorAll("#__diff-style, #__diff-defs, [data-diff-ghost]").forEach((el) => el.remove());
+  d.querySelectorAll(".__diff-same, .__diff-add, .__diff-del").forEach((el) => el.classList.remove("__diff-same", "__diff-add", "__diff-del"));
+}
+
+function enterPreview(en) {
+  if (dirty.has(key()) && !confirm("Discard your unsaved edits and preview this history state?")) return;
+  if (!previewId && doc()) previewBase = slideRoot().cloneNode(true);
+  dirty.delete(key());
+  sel = null; editing = null;
+  undoStack.length = 0; redoStack.length = 0;
+  previewId = en.id;
+  updateSaveBtn();
+  // Served as a real page (with an injected, __-marked <base>) so the slide's
+  // CSS, i18n loader, and fonts all resolve exactly like a normal load —
+  // canvas only, nothing on disk.
+  const lang = isI18n ? `&lang=${locale}` : "";
+  const file = encodeURIComponent(slideFile(locale, slideName));
+  const catalogFile = isI18n ? `decks/${deckId}/slides/i18n/${locale}.js` : "";
+  const catalog = catalogFile ? `&catalog=${encodeURIComponent(catalogFile)}` : "";
+  const catalogUrl = catalogFile
+    ? `&catalogUrl=${encodeURIComponent(`/api/history/catalog?id=${encodeURIComponent(en.id)}&catalog=${encodeURIComponent(catalogFile)}`)}` : "";
+  frame.src = `/api/history/preview?id=${encodeURIComponent(en.id)}&file=${file}${catalog}${catalogUrl}${lang}`;
+  renderInspector();
+  renderHistory();
+  status(`previewing ${en.ts} (${en.author || "agent"}) — Restore writes it back, latest entry cancels`);
+}
+
+function exitPreview() {
+  if (!previewId) return;
+  previewId = null;
+  previewBase = null;
+  updateSaveBtn();
+  loadSlide();
+  status("back to the current state");
+}
+
+async function restorePreview() {
+  // Restore = save the previewed canvas (plus any tweaks made on it) as the
+  // new current state — an authored edit like any other, journaled + stamped.
+  clearDiff();
+  previewBase = null;
+  dirty.add(key());
+  if (isI18n) doc().querySelectorAll("[data-i18n]").forEach((element) => i18nEdited.add(element.getAttribute("data-i18n")));
+  const id = previewId;
+  previewId = null; // so saveCurrent → SSE echo doesn't think we're previewing
+  updateSaveBtn();
+  const ok = await saveCurrent();
+  if (!ok) { previewId = id; updateSaveBtn(); return; }
+  status(`restored historical state — saved as an edit by ${owner}`);
+  renderHistory();
+}
+
+function doSave() {
+  if (!canEdit) { status("view-only access", true); return; }
+  if (assetFile && assetCollaborative) { status("changes sync automatically"); return; }
+  if (assetFile) return saveAsset();
+  return previewId ? restorePreview() : saveCurrent();
+}
+</script>
+</body>
+</html>

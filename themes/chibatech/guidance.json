@@ -1,0 +1,11 @@
+{
+  "$comment": "Chiba Tech design rules, machine-checkable. The editor, tools, and build lint enforce these. Blocked by a rule you disagree with? Edit this file — that is the intended escape hatch: an explicit, named, reviewable decision (git will attribute it to you). Prose rationale lives in GUIDANCE.md. Decks may override specific rules or extend tokens in their own CSS (deck-scoped variants are first-class, not violations).",
+  "colorSource": "tokens-only",
+  "accentsPerSlide": 1,
+  "cornerRadiusPx": 0,
+  "ruleWeightPx": 3,
+  "minFontPx": 12,
+  "headingKerningMaxEm": 0,
+  "jpSizeBridge": 0.86,
+  "bodyLeadingBonusPt": 3
+}

@@ -1,0 +1,13 @@
+{
+  "name": "demo",
+  "documentId": "demoDeckDocument00001",
+  "theme": "starter",
+  "slides": [
+    "title"
+  ],
+  "locales": [
+    "en",
+    "ja"
+  ],
+  "defaultLocale": "en"
+}

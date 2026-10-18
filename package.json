@@ -1,0 +1,27 @@
+{
+  "name": "decks-design-editor",
+  "private": true,
+  "type": "module",
+  "description": "Browser language and collaboration tooling for the decks editor. PDF builds remain zero-dependency.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@hocuspocus/provider": "4.5.0",
+    "@hocuspocus/server": "4.5.0",
+    "@modelcontextprotocol/server": "2.0.0",
+    "esbuild": "0.28.1",
+    "markdownlint": "0.41.1",
+    "monaco-editor": "0.56.0",
+    "y-monaco": "0.1.6",
+    "yjs": "13.6.32",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  },
+  "overrides": {
+    "dompurify": "3.4.13"
+  }
+}

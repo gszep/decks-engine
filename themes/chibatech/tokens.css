@@ -1,0 +1,75 @@
+/* Chiba Tech — design tokens
+ *
+ * Foundation: black & white are primary; every composition is mostly B&W.
+ * Accent hues are ALWAYS secondary, organised as Light (muted/calm) /
+ * Medium (vivid) / Dark, and combined via the "Zig Zag" method.
+ * Hex values sampled from the Chiba Tech Visual Identity guidelines
+ * (inherited from Joi/ai-talent-engine-ops design-system).
+ *
+ * Typography rules from the guidelines:
+ *   • Body leading = body size + 3pt (~1.45 at body sizes)
+ *   • Headers start at 2× body pt size; heading leading = size × 0.9
+ *   • Kern headers by -5% (tight & compact)
+ *   • JP↔EN size bridge: ×1.18 (JP→EN) or ×0.86 (EN→JP)
+ *   • Digital min 12pt (16px); print min 8pt
+ *
+ * Fonts are metric substitutes (the licensed faces aren't bundled):
+ *   Finder (EN)     → Helvetica Neue / Arimo / Arial
+ *   Now Gothic (JP) → Zen Kaku Gothic New / Noto Sans JP
+ */
+:root {
+  /* ---- Core (primary) ---- */
+  --ct-black: #000000;
+  --ct-white: #ffffff;
+
+  /* ---- Neutrals ---- */
+  --ct-gray-100: #f4f4f4; /* light surface / muted fill */
+  --ct-gray-300: #bdbdbd;
+  --ct-gray-500: #6b6b6b;
+
+  /* ---- Accent families: Light / Medium / Dark ---- */
+  /* Red */
+  --ct-red-light:  #ffe3e2;
+  --ct-red:        #cf1516;
+  --ct-red-dark:   #6b1400;
+  --ct-red-darkest:#3a0706;
+  /* Orange */
+  --ct-orange-light: #fedec7;
+  --ct-orange:       #e96524;
+  --ct-orange-dark:  #7a2f0c;
+  /* Yellow */
+  --ct-yellow-light: #fffcd6;
+  --ct-yellow:       #f9e81e;
+  --ct-yellow-dark:  #876714;
+  /* Green */
+  --ct-green-light:  #daf2c0;
+  --ct-green:        #7ede3c;
+  --ct-green-dark:   #0d530d;
+  /* Teal */
+  --ct-teal-light:   #d1fffc;
+  --ct-teal:         #29e2d0;
+  --ct-teal-dark:    #035e4f;
+  /* Blue */
+  --ct-blue-light:   #bfe2fe;
+  --ct-blue:         #2c40d3;  /* core / formal blue */
+  --ct-blue-dark:    #081c4f;
+  /* Magenta */
+  --ct-magenta-light:#fedbf9;
+  --ct-magenta:      #db23dd;
+  --ct-magenta-dark: #3c0d39;
+
+  /* ---- Semantic aliases ---- */
+  --ct-ink:           var(--ct-black);
+  --ct-ink-inverse:   var(--ct-white);
+  --ct-surface:       var(--ct-white);
+  --ct-surface-muted: var(--ct-gray-100);
+  --ct-surface-ink:   var(--ct-black);   /* black surface, white text */
+  --ct-hairline:      var(--ct-black);   /* rules are hard black, full-width */
+  --ct-core-blue:     var(--ct-blue);    /* logotype/symbol in formal contexts */
+
+  /* ---- Type families ---- */
+  --ct-font-sans: "Helvetica Neue", "Arimo", Helvetica, Arial, sans-serif;
+  --ct-font-jp: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", sans-serif;
+  --ct-font-mono: "SF Mono", "Menlo", "Consolas", "Liberation Mono", monospace;
+}

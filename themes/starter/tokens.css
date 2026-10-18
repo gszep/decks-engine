@@ -1,0 +1,36 @@
+/* Starter theme — design tokens
+ *
+ * A small, original, dependency-free starting point: black & white carry the
+ * composition, one blue accent is always secondary. Rename/extend per deck in
+ * the deck's own CSS (deck-scoped --ct-* extensions are first-class) or fork
+ * the whole theme into the deck's private copy from the editor.
+ *
+ * Typography rules:
+ *   • Body leading = body size + 3pt (~1.45 at body sizes)
+ *   • Headers start at 2× body size; heading leading = size × 0.9
+ *   • Kern headers by -5% (tight & compact)
+ *   • JP↔EN size bridge: ×1.18 (JP→EN) or ×0.86 (EN→JP)
+ *   • Digital min 12pt (16px); print min 8pt
+ *
+ * Fonts are metric substitutes chosen for CJK+Latin coverage; swap the
+ * @import in theme.css for licensed faces if you have them.
+ */
+:root {
+  /* ---- Core (primary) ---- */
+  --ct-black: #000000;
+  --ct-white: #ffffff;
+
+  /* ---- Neutrals ---- */
+  --ct-gray-100: #f4f4f4; /* light surface / muted fill */
+  --ct-gray-300: #bdbdbd;
+  --ct-gray-500: #6b6b6b;
+
+  /* ---- Accent: one family, used sparingly (Light / Medium / Dark) ---- */
+  --ct-blue-light: #d7e3f2;
+  --ct-blue:       #2b5aa0;
+  --ct-blue-dark:  #17325a;
+
+  /* ---- Type ---- */
+  --ct-font-sans: "Arimo", "Helvetica Neue", Arial, sans-serif;
+  --ct-font-jp: "Zen Kaku Gothic New", "Noto Sans JP", sans-serif;
+}

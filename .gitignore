@@ -1,0 +1,7 @@
+dist/
+render/
+node_modules/
+.history/
+decks/__e2e/
+playwright-report/
+test-results/

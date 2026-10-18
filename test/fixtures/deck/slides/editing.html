@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="test.css">
+<script src="../../../engine/i18n.js"></script>
+<style>
+  .editable-text { position:absolute; left:80px; top:80px; width:500px; margin:0; font:32px/1.2 sans-serif; }
+  .plain-text { position:absolute; left:700px; top:80px; width:480px; margin:0; font:32px/1.2 sans-serif; }
+  .resize-box { position:absolute; left:80px; top:350px; width:240px; height:140px; padding:16px; border:3px solid var(--ct-blue); box-sizing:border-box; }
+  .resize-image { position:absolute; left:460px; top:350px; width:200px; height:100px; }
+  .resize-frame { position:absolute; left:800px; top:350px; width:300px; height:160px; border:3px solid var(--ct-blue); }
+  .diagram { position:absolute; left:80px; top:560px; width:600px; height:120px; }
+  .diagram-label { font:14px/1.15 sans-serif; text-align:center; }
+</style>
+</head><body><div class="slide">
+  <p class="editable-text" data-i18n="editing.text"></p>
+  <p class="plain-text">Plain text</p>
+  <div class="resize-box">Container</div>
+  <img class="resize-image" alt="Resize image" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='100'%3E%3Crect width='200' height='100' fill='black'/%3E%3C/svg%3E">
+  <iframe class="resize-frame" title="Resize frame" src="about:blank"></iframe>
+  <svg class="diagram" viewBox="0 0 1140 228" aria-hidden="true">
+    <path d="M60 120 C 300 20, 700 20, 1080 120" fill="none" stroke="black" stroke-width="3"/>
+    <foreignObject x="253" y="36" width="166" height="32"><div xmlns="http://www.w3.org/1999/xhtml" class="diagram-label" data-i18n="editing.label"></div></foreignObject>
+  </svg>
+</div></body></html>

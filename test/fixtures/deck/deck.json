@@ -1,0 +1,8 @@
+{
+  "name": "Collaboration_Test",
+  "documentId": "e2eDeckDocument0001",
+  "theme": "chibatech",
+  "slides": ["title", "editing"],
+  "locales": ["en", "ja"],
+  "defaultLocale": "en"
+}

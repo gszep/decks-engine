@@ -1,0 +1,70 @@
+/* Chiba Tech — slide chrome
+ * B&W foundation, square corners, hard 3px black rules, one accent (core blue).
+ * 1280×720 full-bleed slides rendered by headless Chrome. */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+
+.slide {
+  width: 1280px; height: 720px; background: var(--ct-white); color: var(--ct-black);
+  font-family: var(--ct-font-sans); position: relative; overflow: hidden;
+  padding: 64px 72px; display: flex; flex-direction: column;
+}
+.slide.ink  { background: var(--ct-black); color: var(--ct-white); }
+.slide.blue { background: var(--ct-blue);  color: var(--ct-white); }
+
+/* ---- Japanese mirror: same chrome, JP type rules ---- */
+html[lang="ja"] .slide { font-family: var(--ct-font-jp); }
+html[lang="ja"] h1.t, html[lang="ja"] h2.t { letter-spacing: -0.02em; }
+html[lang="ja"] .eyebrow { letter-spacing: .12em; }
+
+/* ---- header: eyebrow + optional title ---- */
+.eyebrow { font-size: 15px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  border-top: 3px solid currentColor; padding-top: 9px; display: inline-block; align-self: flex-start; }
+h1.t { margin: 16px 0 0; font-size: 72px; font-weight: 700; letter-spacing: -0.05em; line-height: 0.9; }
+h2.t { margin: 16px 0 0; font-size: 50px; font-weight: 700; letter-spacing: -0.045em; line-height: 0.92; }
+.t .dim { color: var(--ct-gray-300); }
+.t .acc { color: var(--ct-blue); }
+.ink .t .acc, .blue .t .acc { color: var(--ct-blue-light); }
+.lede { font-size: 21px; line-height: 1.45; color: var(--ct-gray-500); margin: 18px 0 0; max-width: 980px; }
+.ink .lede, .blue .lede { color: rgba(255,255,255,.72); }
+
+/* ---- body fills remaining space ---- */
+.fill { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.spacer { flex: 1; }
+
+/* ---- footer ---- */
+.foot { display: flex; justify-content: space-between; align-items: flex-end;
+  margin-top: 22px; font-size: 13px; color: var(--ct-gray-500); }
+.ink .foot, .blue .foot { color: rgba(255,255,255,.6); }
+.foot .wordmark { font-weight: 700; letter-spacing: -0.02em; font-size: 16px; color: currentColor; }
+
+/* ---- panels / cards (hard-edged) ---- */
+.panel { border: 3px solid var(--ct-black); padding: 26px 28px; background: var(--ct-white); }
+.panel.k { background: var(--ct-black); color: var(--ct-white); border-color: var(--ct-black); }
+.panel.muted { background: var(--ct-gray-100); border-color: var(--ct-gray-100); }
+.panel.acc { background: var(--ct-blue); color: var(--ct-white); border-color: var(--ct-blue); }
+
+.grid { display: grid; gap: 18px; }
+.c2 { grid-template-columns: repeat(2,1fr); }
+.c3 { grid-template-columns: repeat(3,1fr); }
+.c4 { grid-template-columns: repeat(4,1fr); }
+
+.kicker { font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--ct-gray-500); }
+.acc-kicker { color: var(--ct-blue); }
+.k .kicker, .acc .kicker { color: rgba(255,255,255,.7); }
+.h3 { font-size: 27px; font-weight: 700; letter-spacing: -0.03em; margin: 8px 0 6px; line-height: 1; }
+.h4 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 6px 0 4px; }
+.p  { font-size: 16px; line-height: 1.45; color: var(--ct-gray-500); margin: 0; }
+.k .p, .acc .p { color: rgba(255,255,255,.8); }
+
+.mono { font-family: var(--ct-font-mono); }
+
+/* flow arrow + step number */
+.arrow { font-size: 30px; font-weight: 700; color: var(--ct-blue); display: flex; align-items: center; justify-content: center; }
+.ink .arrow { color: var(--ct-blue-light); }
+.numbig { font-size: 22px; font-weight: 700; color: var(--ct-gray-300); }
+.acc .numbig, .k .numbig { color: rgba(255,255,255,.4); }
+
+/* a hard rule */
+.hr { height: 3px; background: var(--ct-black); border: 0; margin: 0; }
