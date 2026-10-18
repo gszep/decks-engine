@@ -21,9 +21,10 @@
 // PDFs are generated build artifacts (gitignored); never hand-edit them.
 // There are no version numbers: one latest PDF per locale, overwritten in
 // place — history and provenance live in git + data-modified/data-author.
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, copyFileSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, copyFileSync, writeFileSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -127,6 +128,55 @@ if (I18N_MODE) {
   }
 }
 
+// ---- Local render server ----
+// Slides render over loopback HTTP rather than file:// so their relative
+// references resolve exactly as the hosted service resolves them: /decks/...
+// and /themes/... from the content root, /engine/... from the engine checkout
+// (which may be this checkout, a submodule mounted inside the content
+// checkout, or a separate install).
+const MIME = {
+  ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+  ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg", ".gif": "image/gif", ".svg": "image/svg+xml",
+  ".webp": "image/webp", ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf",
+  ".mp4": "video/mp4", ".ico": "image/x-icon",
+};
+const renderServer = createServer((req, res) => {
+  try {
+    const url = new URL(req.url, "http://127.0.0.1");
+    const p = decodeURIComponent(url.pathname);
+    let file = null;
+    if (p.startsWith("/engine/")) {
+      const candidate = path.resolve(ROOT, "." + p);
+      if (candidate.startsWith(ROOT + path.sep)) file = candidate;
+    } else if (p.startsWith("/decks/") || p.startsWith("/themes/")) {
+      const candidate = path.resolve(CONTENT_ROOT, "." + p);
+      if (candidate.startsWith(CONTENT_ROOT + path.sep)) file = candidate;
+      // A deck with its own theme copy (decks/<deck>/theme/) renders with it,
+      // not with the shared theme of the same name. The requesting slide is
+      // identified by its Referer, the way the editor identifies documents.
+      if (file && p.startsWith("/themes/")) {
+        const deck = String(req.headers.referer || "").match(/\/decks\/([^/]+)\//)?.[1];
+        const local = deck && path.join(CONTENT_ROOT, "decks", deck, "theme", p.split("/").slice(3).join("/"));
+        if (local && existsSync(local)) file = local;
+      }
+    }
+    if (!file || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream" });
+    res.end(readFileSync(file));
+  } catch { try { res.writeHead(500); res.end(); } catch {} }
+});
+await new Promise((resolve) => renderServer.listen(0, "127.0.0.1", resolve));
+const RENDER_ORIGIN = `http://127.0.0.1:${renderServer.address().port}`;
+// Chrome runs async while the render server keeps serving in this process —
+// a synchronous spawn would block the event loop and deadlock the server.
+const runChrome = (args) => new Promise((resolve, reject) => {
+  const child = spawn(CHROME, args, { stdio: "ignore" });
+  child.once("error", reject);
+  child.once("exit", (code) => code === 0 ? resolve() : reject(new Error(`Chrome exited with ${code}`)));
+});
+
 // ---- Build each requested locale ----
 for (const locale of targets) {
   const SRC = I18N_MODE ? path.join(DECK_DIR, "slides") : path.join(DECK_DIR, "slides", locales[locale]);
@@ -140,12 +190,13 @@ for (const locale of targets) {
     const html = path.join(SRC, `${slideName}.html`);
     if (!existsSync(html)) { console.warn("skip (missing):", `${locale}/${slideName}`); continue; }
     const png = path.join(tmp, `${slideName}.png`);
-    execFileSync(CHROME, [
+    const slideUrl = `${RENDER_ORIGIN}/${path.relative(CONTENT_ROOT, html).split(path.sep).join("/")}${urlSuffix}`;
+    await runChrome([
       "--headless=new", "--no-sandbox", "--hide-scrollbars",
       "--force-device-scale-factor=2", "--window-size=1280,720",
       "--default-background-color=ffffffff", "--virtual-time-budget=4000",
-      `--screenshot=${png}`, `file://${html}${urlSuffix}`,
-    ], { stdio: "ignore" });
+      `--screenshot=${png}`, slideUrl,
+    ]);
     pngs.push(png);
     if (KEEP_PNGS) {
       const idx = String(slides.indexOf(slideName) + 1).padStart(2, "0");
@@ -170,13 +221,15 @@ ${pngs.map((p) => `<div class="page"><img src="file://${p}"></div>`).join("\n")}
 `);
 
   const out = path.join(DIST, `${name}${suffix}.pdf`);
-  execFileSync(CHROME, [
+  await runChrome([
     "--headless=new", "--no-sandbox", "--no-pdf-header-footer",
     "--virtual-time-budget=8000",
     `--print-to-pdf=${out}`, `file://${printHtml}`,
-  ], { stdio: "ignore" });
+  ]);
 
   rmSync(tmp, { recursive: true, force: true });
   console.log(`\n✓ generated ${path.relative(process.cwd(), out)} (${pngs.length} slides${suffix ? `, ${locale}` : ""})`);
 }
+renderServer.closeAllConnections?.();
+renderServer.close();
 if (KEEP_PNGS) console.log("✓ QA slide images →", path.relative(process.cwd(), QA_DIR));
