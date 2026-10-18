@@ -11,9 +11,9 @@ import { createDeck } from "../engine/registry.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 8321;
 const HOST_PORT = 8322;
-const owner = { id: "iap-human:11223344556677889900", email: "Jim@Example.com", name: "jimgris", type: "human" };
+const owner = { id: "iap-human:11223344556677889900", email: "owner@example.com", name: "owner", type: "human" };
 const IAP = {
-  "x-goog-authenticated-user-email": "accounts.google.com:jim@example.com",
+  "x-goog-authenticated-user-email": "accounts.google.com:owner@example.com",
   "x-goog-authenticated-user-id": "accounts.google.com:11223344556677889900",
 };
 
@@ -32,12 +32,12 @@ const fixtureRoot = () => {
 test("createDeck scaffolds an i18n deck with a private theme and its owner", () => {
   const root = fixtureRoot();
   try {
-    const created = createDeck({ contentRoot: root, name: "Jim Playground", owner });
-    assert.match(created.deckId, /^jim-playground$/);
+    const created = createDeck({ contentRoot: root, name: "Playground", owner });
+    assert.match(created.deckId, /^playground$/);
     assert.match(created.documentId, /^[A-Za-z0-9_-]{12,128}$/);
     const deckDir = path.join(root, "decks", created.deckId);
     const manifest = JSON.parse(readFileSync(path.join(deckDir, "deck.json"), "utf8"));
-    assert.equal(manifest.name, "jim-playground");
+    assert.equal(manifest.name, "playground");
     assert.equal(manifest.documentId, created.documentId);
     assert.deepEqual(manifest.slides, ["title"]);
     assert.deepEqual(manifest.locales, ["en", "ja"]);
@@ -47,7 +47,7 @@ test("createDeck scaffolds an i18n deck with a private theme and its owner", () 
     // Owner-only access, recorded at creation.
     const access = JSON.parse(readFileSync(path.join(deckDir, ".history", "access.json"), "utf8"));
     assert.equal(access.documentId, created.documentId);
-    assert.equal(access.owner.email, "jim@example.com");
+    assert.equal(access.owner.email, "owner@example.com");
     assert.deepEqual(access.permissions, []);
     // Starter slide keys exist in every locale catalog.
     const html = readFileSync(path.join(deckDir, "slides", "title.html"), "utf8");
@@ -65,9 +65,9 @@ test("createDeck scaffolds an i18n deck with a private theme and its owner", () 
 test("createDeck deduplicates slugs and validates the name", () => {
   const root = fixtureRoot();
   try {
-    const first = createDeck({ contentRoot: root, name: "jim playground", owner });
-    const second = createDeck({ contentRoot: root, name: "jim-playground", owner });
-    assert.equal(second.deckId, "jim-playground-2");
+    const first = createDeck({ contentRoot: root, name: "playground", owner });
+    const second = createDeck({ contentRoot: root, name: "playground", owner });
+    assert.equal(second.deckId, "playground-2");
     assert.notEqual(first.documentId, second.documentId);
     assert.throws(() => createDeck({ contentRoot: root, name: "!!!", owner }), /letter or digit/);
     assert.throws(() => createDeck({ contentRoot: root, name: "ok", theme: "missing" }), /unknown theme/);
@@ -101,7 +101,7 @@ test("editor runs against a separate content repo and journals to its git histor
     let cookie = "";
     await waitFor(async () => {
       try {
-        const response = await fetch(`${base}/presentation/d/${created.documentId}?user=jim@example.com`);
+        const response = await fetch(`${base}/presentation/d/${created.documentId}?user=owner@example.com`);
         cookie = (response.headers.get("set-cookie") || "").split(";")[0];
         return response.status === 200;
       } catch { return false; }
@@ -154,7 +154,7 @@ test("hosted editor: creates slides, private theme files, never touches the shar
     let cookie = "";
     await waitFor(async () => {
       try {
-        const response = await fetch(`${base}/presentation/d/${created.documentId}?user=jim@example.com`);
+        const response = await fetch(`${base}/presentation/d/${created.documentId}?user=owner@example.com`);
         cookie = (response.headers.get("set-cookie") || "").split(";")[0];
         return response.status === 200;
       } catch { return false; }
@@ -190,19 +190,19 @@ test("hosted editor: creates slides, private theme files, never touches the shar
     assert.equal((await post("/api/slides", { name: "extra", from: "nope" })).status, 400);
 
     // New files land in the deck's PRIVATE theme, never the shared tree.
-    response = await post("/api/asset", { file: "themes/chibatech/notes.md", text: "my notes\n" });
+    response = await post("/api/asset", { file: "themes/starter/notes.md", text: "my notes\n" });
     assert.equal(response.status, 200);
     assert.equal(readFileSync(path.join(deckDir, "theme", "notes.md"), "utf8"), "my notes\n");
     assert.ok(!existsSync(path.join(root, "themes", "starter", "notes.md")));
 
     // Editing through the shared URL scheme writes the private copy.
-    response = await post("/api/asset", { file: "themes/chibatech/GUIDANCE.md", text: "# Mine\n" });
+    response = await post("/api/asset", { file: "themes/starter/GUIDANCE.md", text: "# Mine\n" });
     assert.equal(response.status, 200);
     assert.equal(readFileSync(path.join(deckDir, "theme", "GUIDANCE.md"), "utf8"), "# Mine\n");
     assert.equal(readFileSync(path.join(root, "themes", "starter", "GUIDANCE.md"), "utf8"), "# Guidance\n");
 
     // And /themes/... reads resolve to the private copy.
-    const served = await fetch(`${base}/themes/chibatech/GUIDANCE.md`, { headers: { cookie } });
+    const served = await fetch(`${base}/themes/starter/GUIDANCE.md`, { headers: { cookie } });
     assert.equal(await served.text(), "# Mine\n");
 
     // New deck CSS is allowed; other slides tree paths stay checked.
@@ -251,7 +251,7 @@ test("host: POST /api/decks creates, discovers and serves a deck owned by its cr
 
     let response = await fetch(`${base}/api/decks`, {
       method: "POST", headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ name: "jim playground" }),
+      body: JSON.stringify({ name: "playground" }),
     });
     assert.equal(response.status, 201);
     const created = await response.json();
