@@ -51,6 +51,7 @@ import { createCollaborationServer, importSourceFile, parseCatalogSource, addAss
 import { createAuthenticator } from "./auth.mjs";
 import { createAccessController } from "./access.mjs";
 import { createDeckMcp, serveMcp } from "./mcp.mjs";
+import { withI18nLoader } from "./i18n-loader.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // The engine (this checkout) and the content (decks/, themes/, tools/) are
@@ -322,6 +323,8 @@ const staticCacheControl = (ext, abs = "") => {
   if ([".css", ".js", ".mjs", ".json"].includes(ext)) return "private, max-age=5";
   return "no-store";
 };
+const isSlideHtml = (abs) => abs.startsWith(SLIDES_DIR + path.sep) && abs.endsWith(".html");
+const servedStatic = (abs, body) => isSlideHtml(abs) ? withI18nLoader(body) : body;
 const readStaticFile = (abs) => {
   const cachedText = PUBLIC_VIEW_ONLY ? null : fileCache.get(rel(abs));
   if (cachedText != null) return cachedText;
@@ -558,7 +561,7 @@ const mcpHandler = createDeckMcp({
       }
       writeCatalog(loc, cat, "agent", agentAuthor(principal));
     }
-    writeTracked(slideAbs(slide), html, "agent", agentAuthor(principal));
+    writeTracked(slideAbs(slide), withI18nLoader(html), "agent", agentAuthor(principal));
     broadcast("slide", { file: rel(slideAbs(slide)) });
     const manifest = readManifest();
     if (!manifest.slides.includes(slide)) {
@@ -719,7 +722,7 @@ const handleHttp = async (req, res) => {
       if (abs.startsWith(allowedRoot + path.sep) && (cached || (existsSync(abs) && statSync(abs).isFile()))) {
         const ext = path.extname(abs).toLowerCase(), headers = { "content-type": MIME[ext] || "application/octet-stream", "cache-control": staticCacheControl(ext, abs) };
         if (ext === ".html") headers["content-security-policy"] = SLIDE_CSP;
-        res.writeHead(200, headers); res.end(publicCopy(abs, readStaticFile(abs))); return;
+        res.writeHead(200, headers); res.end(publicCopy(abs, servedStatic(abs, readStaticFile(abs)))); return;
       }
     }
     const origin = publicOrigin || `http://${req.headers.host || `${HOST}:${PORT}`}`;
@@ -1126,7 +1129,7 @@ const handleHttp = async (req, res) => {
         };
         if (ext === ".html" && contentPath) headers["content-security-policy"] = SLIDE_CSP;
         res.writeHead(200, headers);
-        res.end(contentPath ? readStaticFile(abs) : readFileSync(abs));
+        res.end(contentPath ? servedStatic(abs, readStaticFile(abs)) : readFileSync(abs));
         return;
       }
     }
