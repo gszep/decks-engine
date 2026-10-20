@@ -27,6 +27,7 @@ import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { withI18nLoader } from "./i18n-loader.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // The engine and the content root are separable (see engine/edit.mjs).
@@ -164,7 +165,8 @@ const renderServer = createServer((req, res) => {
     }
     if (!file || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { "content-type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream" });
-    res.end(readFileSync(file));
+    const slideHtml = file.endsWith(".html") && /[/\\]decks[/\\][^/\\]+[/\\]slides[/\\]/.test(file);
+    res.end(slideHtml ? withI18nLoader(readFileSync(file, "utf8")) : readFileSync(file));
   } catch { try { res.writeHead(500); res.end(); } catch {} }
 });
 await new Promise((resolve) => renderServer.listen(0, "127.0.0.1", resolve));
