@@ -77,6 +77,17 @@ WebSocket handshake is authorized server-side; private hosting fails closed
 without identity headers (Google IAP is supported end to end). Anyone signed
 in can create a deck they own; agents get `create_deck` through the connector.
 
+On public view-only hosts, decks can be gated: the host-wide
+`DECKS_VIEW_PASSWORD` applies to every listed deck, and a deck's **owner may
+set a per-deck view password** (editor → Share → *Public talks site*; stored
+only as a salted verifier in gitignored `.history/view.json` — never plain-
+text). A per-deck password overrides the global one for that deck alone;
+unlock cookies are document-bound, so unlocking one deck never unlocks
+another, and changing a deck's password invalidates its prior unlock state.
+Owners may also toggle whether the deck is listed publicly. Agents and
+editors can never set passwords or change publication — that is owner-only,
+enforced server-side.
+
 `Dockerfile` builds the hosted image (engine only, content mounted at
 `/content`).
 

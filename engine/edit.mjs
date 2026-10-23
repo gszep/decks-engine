@@ -50,6 +50,7 @@ import { fileURLToPath } from "node:url";
 import { createCollaborationServer, importSourceFile, parseCatalogSource, addAsset } from "./collaboration.mjs";
 import { createAuthenticator } from "./auth.mjs";
 import { createAccessController } from "./access.mjs";
+import { cookieName, cookieValue, createVerifierStore, verifyAgainstVerifier } from "./view-access.mjs";
 import { createDeckMcp, serveMcp } from "./mcp.mjs";
 import { withI18nLoader } from "./i18n-loader.mjs";
 
@@ -615,12 +616,27 @@ const publicCopy = (abs, body) => {
     return String(body).replace(/window\.I18N_META\s*=\s*\{[\s\S]*?\n\};|window\.I18N_META\s*=\s*\{\};/, "window.I18N_META = {};");
   return body;
 };
-const VIEW_COOKIE = `decks_view_${documentId}`;
+// Public view gating: a deck-specific password (owner-set, stored as a salted
+// verifier in .history/view.json) overrides the host-wide DECKS_VIEW_PASSWORD
+// for this deck only; decks without one keep the legacy global behaviour.
+// The cookie is document-bound in both modes (HMAC over the documentId), so
+// unlocking one deck never unlocks another, and changing a deck's password
+// invalidates its prior unlock cookie.
+const VIEW_COOKIE = cookieName(documentId);
 const viewDigest = (password) => createHmac("sha256", String(password || "")).update(documentId).digest();
+const viewStore = createVerifierStore(DECK_DIR, documentId);
+// The active gate: per-deck verifier if present, else the global password.
+const viewGate = () => {
+  const verifier = viewStore.load();
+  if (verifier) return { verifier, cookie: cookieValue(verifier.hash, documentId) };
+  return VIEW_PASSWORD ? { global: true, cookie: viewToken } : null;
+};
 const viewToken = VIEW_PASSWORD ? viewDigest(VIEW_PASSWORD).toString("hex") : "";
 const viewUnlocked = (req) => {
+  const gate = viewGate();
+  if (!gate) return true;
   const match = String(req.headers.cookie || "").match(new RegExp(`(?:^|;\\s*)${VIEW_COOKIE}=([0-9a-f]{64})`));
-  return Boolean(match) && timingSafeEqual(Buffer.from(match[1], "hex"), Buffer.from(viewToken, "hex"));
+  return Boolean(match) && timingSafeEqual(Buffer.from(match[1], "hex"), Buffer.from(gate.cookie, "hex"));
 };
 const readForm = (req) => new Promise((resolve) => {
   let data = "";
@@ -685,13 +701,21 @@ const handleHttp = async (req, res) => {
       const query = new URLSearchParams(url.searchParams); query.set("mode", "present");
       return `${canonicalDocumentPath}?${query}`;
     };
-    if (VIEW_PASSWORD && !viewUnlocked(req)) {
+    // The view password gates the PUBLIC view-only host only: the private
+    // host authenticates via IAP/identity and document ACLs, and its
+    // owner/editor sessions must never be locked out by the public gate.
+    const viewLocked = PUBLIC_VIEW_ONLY && !viewUnlocked(req);
+    if (viewLocked) {
       if (req.method === "POST" && p === `${canonicalDocumentPath}/gate`) {
         const password = (await readForm(req)).get("password");
-        if (timingSafeEqual(viewDigest(password), viewDigest(VIEW_PASSWORD))) {
+        const gate = viewGate();
+        // Verify against the active gate only; never log or echo the input.
+        const ok = gate?.verifier ? verifyAgainstVerifier(password, gate.verifier)
+          : gate?.global ? timingSafeEqual(viewDigest(password), viewDigest(VIEW_PASSWORD)) : false;
+        if (ok) {
           res.writeHead(303, {
             location: `/d/${documentId}`, "cache-control": "no-store",
-            "set-cookie": `${VIEW_COOKIE}=${viewToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
+            "set-cookie": `${VIEW_COOKIE}=${gate.verifier ? gate.cookie : viewToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`,
           });
           res.end(); return;
         }
@@ -964,6 +988,49 @@ const handleHttp = async (req, res) => {
       const result = access.revoke(identity, p.slice("/api/access/".length));
       collaborationServer?.hocuspocus.closeConnections(documentId);
       json(res, 200, result);
+      return;
+    }
+
+    // Public talks-site settings — owner only. The per-deck view password is
+    // stored as a salted verifier (never plaintext, never journaled, never
+    // returned); agents and editors are denied by requireOwner, preserving
+    // the rule that only owners publish or gate their decks.
+    if (p === "/api/view" && ["GET", "POST", "DELETE"].includes(req.method)) {
+      try { access.requireOwner(identity); } catch (error) {
+        json(res, error.statusCode || 403, { error: String(error.message || error) }); return;
+      }
+      if (req.method === "GET") {
+        const verifier = viewStore.load();
+        json(res, 200, { configured: Boolean(verifier), updatedAt: verifier?.updatedAt || null });
+        return;
+      }
+      if (req.method === "POST") {
+        const { password } = await readBody(req);
+        if (typeof password !== "string" || password.length < 4 || password.length > 200) {
+          json(res, 400, { error: "password must be 4–200 characters" }); return;
+        }
+        json(res, 200, { configured: true, ...viewStore.set(password) });
+        return;
+      }
+      viewStore.remove();
+      json(res, 200, { configured: false });
+      return;
+    }
+    // Publication flag: list this deck on public view-only hosts (talks).
+    // Manifest-only: slides, catalogs and history are untouched.
+    if (p === "/api/public" && req.method === "POST") {
+      try { access.requireOwner(identity); } catch (error) {
+        json(res, error.statusCode || 403, { error: String(error.message || error) }); return;
+      }
+      const { public: isPublic } = await readBody(req);
+      if (typeof isPublic !== "boolean") { json(res, 400, { error: "public must be true or false" }); return; }
+      const manifest = readManifest();
+      if (Boolean(manifest.public) !== isPublic) {
+        if (isPublic) manifest.public = true; else delete manifest.public;
+        writeTracked(manifestPath, JSON.stringify(manifest, null, 2) + "\n", "editor", identity.name);
+        broadcast("manifest");
+      }
+      json(res, 200, { public: isPublic, slides: readManifest().slides });
       return;
     }
 

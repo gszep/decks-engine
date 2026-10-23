@@ -112,6 +112,12 @@
   .tool-own button { padding: 2px 6px; font-size: 11px; }
   dialog .share-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--line); }
   dialog .actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+  #publicSection { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  #publicSection h3 { margin: 0 0 8px; font-size: 13px; }
+  #publicSection .public-row { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  #publicSection .public-pass { display: flex; gap: 6px; margin: 8px 0 4px; }
+  #publicSection .public-pass input { flex: 1; min-width: 0; }
+  #publicSection .hint { margin: 6px 0 0; font-size: 11px; opacity: .75; }
 
   /* status bar */
   #status { grid-area: status; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); color: var(--dim); font-size: 12px; }
@@ -210,6 +216,16 @@
       <button class="primary" type="submit">Share</button>
     </form>
     <p class="agents-note">Agents: anyone this deck is shared with can let their coding agent edit it for them. Setup: <a href="/agents" target="_blank" rel="noopener">/agents</a> on this host. Agents never overwrite text a person has edited.</p>
+    <div id="publicSection" hidden>
+      <h3>Public talks site</h3>
+      <label class="public-row"><input type="checkbox" id="publicFlag"> List this deck on the public talks site</label>
+      <div class="public-pass">
+        <input id="viewPassword" type="password" placeholder="Public view password (min 4 characters)" autocomplete="new-password">
+        <button type="button" id="viewPasswordSet">Set password</button>
+        <button type="button" id="viewPasswordRemove" hidden>Remove</button>
+      </div>
+      <p class="hint">Guests open this deck's public link and enter this password. Without one, the site-wide password applies if the host has one. Stored as a salted verifier — never in plaintext. Owners only.</p>
+    </div>
     <div class="actions"><button type="button" id="shareClose">Done</button></div>
   </dialog>
 
@@ -335,7 +351,41 @@ async function renderShareDialog() {
       const target = entry.principal.email || entry.principal.domain || "Anyone signed in with link";
       addRow(target, entry.role, entry.id);
     }
+    // Public talks-site settings: manifest listing + per-deck view password.
+    const section = $("#publicSection");
+    section.hidden = false;
+    $("#publicFlag").checked = manifest.public === true;
+    const view = await fetch("/api/view");
+    if (view.ok) {
+      const state = await view.json();
+      $("#viewPasswordRemove").hidden = !state.configured;
+      $("#viewPassword").placeholder = state.configured
+        ? "New password to replace the current one" : "Public view password (min 4 characters)";
+    }
+  } else {
+    $("#publicSection").hidden = true;
   }
+}
+async function setPublicFlag(isPublic) {
+  const response = await fetch("/api/public", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ public: isPublic }),
+  });
+  if (!response.ok) { status(`could not update publication: ${(await response.json()).error}`, true); return; }
+  manifest.public = isPublic;
+  status(isPublic ? "deck listed on the public talks site" : "deck removed from the public talks site");
+}
+async function setViewPassword(method) {
+  const password = $("#viewPassword").value;
+  if (method === "POST" && password.length < 4) { status("password must be at least 4 characters", true); return; }
+  const response = await fetch("/api/view", {
+    method, headers: { "content-type": "application/json" },
+    body: method === "POST" ? JSON.stringify({ password }) : undefined,
+  });
+  if (!response.ok) { status(`could not update the view password: ${(await response.json()).error}`, true); return; }
+  $("#viewPassword").value = "";
+  await renderShareDialog();
+  status(method === "POST" ? "public view password set — guests unlock this deck with it" : "public view password removed — site-wide password applies if configured");
 }
 function setInspectorOpen(open) {
   document.body.classList.toggle("inspect-open", open);
@@ -353,6 +403,9 @@ $("#presentBtn").onclick = async () => {
 $("#inspectBtn").onclick = () => setInspectorOpen(!document.body.classList.contains("inspect-open"));
 $("#shareBtn").onclick = async () => { await renderShareDialog(); $("#shareDialog").showModal(); };
 $("#shareClose").onclick = () => $("#shareDialog").close();
+$("#publicFlag").onchange = (event) => setPublicFlag(event.target.checked);
+$("#viewPasswordSet").onclick = () => setViewPassword("POST");
+$("#viewPasswordRemove").onclick = () => setViewPassword("DELETE");
 $("#toolCancel").onclick = () => $("#toolDialog").close();
 $("#shareType").onchange = (event) => {
   const input = $("#shareTarget"), needed = event.target.value !== "anyone";
