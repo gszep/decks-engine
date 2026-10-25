@@ -4,7 +4,7 @@ import { z } from "zod";
 const text = (value) => ({ content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }], structuredContent: typeof value === "object" ? value : undefined });
 const failure = (message) => ({ isError: true, content: [{ type: "text", text: message }] });
 
-export function createDeckMcp({ documentId, title, manifest, readSlide, readCatalog, updateCatalogText, readStyles, writeSlide, setSlideOrder, readGuidance, writeGuidance, writeEditorTool }) {
+export function createDeckMcp({ documentId, title, manifest, readSlide, readCatalog, updateCatalogText, readStyles, writeSlide, setSlideOrder, readGuidance, writeGuidance, writeEditorTool, listPermissions, grantPermission, revokePermission }) {
   const factory = ({ authInfo }) => {
     const principal = authInfo?.extra?.principal;
     const server = new McpServer({ name: "decks", version: process.env.K_REVISION || "development" });
@@ -64,6 +64,29 @@ export function createDeckMcp({ documentId, title, manifest, readSlide, readCata
       description: "Add, replace or remove (remove: true) a sidebar tool for the browser editor: plain JS calling harness.registerTool({ id, name, run(h) | activate(h)/deactivate(h), slideLoaded, inspector, dispose }). The harness h offers sel, doc(), slideRoot(), select(el), applyStyle(prop, value), nudge(el, dx, dy), pushUndo(), undo(), touched(el), tokens, locale, slideName, manifest, status(msg), saveCurrent(). Use __-prefixed classes for scaffolding and theme tokens, never hex. Each person must enable the tool before it runs for them.",
       inputSchema: z.object({ name: z.string().min(1), code: z.string().default(""), remove: z.boolean().optional() }),
     }, write((input) => writeEditorTool({ ...input, principal })));
+    // Sharing on the owner's behalf: the agent may exercise its own person's
+    // grant authority when that person is the document owner. Ownership is
+    // never grantable; the server validates and attributes every change.
+    server.registerTool("list_permissions", {
+      title: "List permissions",
+      description: "List the deck's sharing state: owner, identities, and every granted permission with its id, principal and role. Requires the agent's person to own this deck.",
+      inputSchema: z.object({}),
+    }, write(() => listPermissions({ principal })));
+    server.registerTool("grant_permission", {
+      title: "Grant permission",
+      description: "Share this deck on the owner's behalf: grant viewer, commenter or editor to a user (email), a domain, or anyone signed in with the link. Only the deck owner's agent may call this; the owner role itself can never be granted. Private dogfood hosts only accept named users. Re-granting the same principal updates its role.",
+      inputSchema: z.object({
+        role: z.enum(["viewer", "commenter", "editor"]),
+        type: z.enum(["user", "domain", "anyone"]).default("user"),
+        email: z.string().optional(),
+        domain: z.string().optional(),
+      }),
+    }, write((input) => grantPermission({ ...input, principal })));
+    server.registerTool("revoke_permission", {
+      title: "Revoke permission",
+      description: "Remove one granted permission by its id (from list_permissions). Only the deck owner's agent may call this.",
+      inputSchema: z.object({ id: z.string().min(1) }),
+    }, write((input) => revokePermission({ ...input, principal })));
     return server;
   };
   return createMcpHandler(factory, { legacy: "stateless" });

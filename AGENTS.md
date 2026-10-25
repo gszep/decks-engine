@@ -44,8 +44,11 @@ headless Chrome renders them into PDFs. See README.md for layout and commands.
 - **Authorization is deterministic.** Humans, domains, and agents are separate
   principals. Enforce document role and token scope on every HTTP mutation,
   MCP tool, and WebSocket handshake—never in prompts or UI alone. Private
-  hosting fails closed without IAP identity headers; agents cannot own, share,
-  or directly overwrite human-finalized content.
+  hosting fails closed without IAP identity headers. Agents cannot own and
+  can never grant ownership; an agent may exercise its own person's sharing
+  authority (list, grant or revoke viewer/commenter/editor) only when that
+  person is the document's owner, with every change attributed to the agent.
+  Agents never directly overwrite human-finalized content.
 - **Manifest is authoritative.** Slide order and the stable opaque `documentId`
   live in `deck.json`, not in the engine. The editable presentation title is
   operational metadata in ignored `.history/document.json`; URLs and indexes
