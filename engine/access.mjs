@@ -62,6 +62,32 @@ export function createAccessController({ file, documentId, bootstrapOwner = "", 
     }
     return actual;
   };
+  // Sharing authority belongs to the document owner. An agent acts for a
+  // person: when that person is the owner, their agent may exercise the
+  // owner's sharing power on their behalf — list, grant and revoke
+  // viewer/commenter/editor — with the action attributed to the agent's
+  // principal. Ownership itself is never grantable (the role set excludes
+  // "owner"), and an agent whose person is not the owner has no sharing
+  // authority; neither does any human non-owner.
+  const grantAuthority = (principal) => {
+    if (!principal) return null;
+    if (principal.type === "agent") {
+      if (!principal.delegatedPrincipalId && !principal.delegatedSubject) return null;
+      // Not inherited: on a fresh ACL this bootstraps the person as owner
+      // exactly as a human owner's first call would (bootstrap only lands
+      // for a human principal matching DECKS_BOOTSTRAP_OWNER).
+      const person = role({ ...principal, id: principal.delegatedPrincipalId || "", type: "human" });
+      return person === "owner" ? "owner" : null;
+    }
+    return role(principal) === "owner" ? "owner" : null;
+  };
+  const requireGrantAuthority = (principal) => {
+    if (grantAuthority(principal) !== "owner") {
+      const error = new Error("only the document owner (or their agent) can manage sharing");
+      error.statusCode = 403;
+      throw error;
+    }
+  };
 
   return {
     remember(principal) {
@@ -78,11 +104,11 @@ export function createAccessController({ file, documentId, bootstrapOwner = "", 
     requireEdit: (principal) => requireRole(principal, "editor"),
     requireOwner: (principal) => requireRole(principal, "owner"),
     list(principal) {
-      requireRole(principal, "owner");
+      requireGrantAuthority(principal);
       return read();
     },
     grant(principal, input) {
-      requireRole(principal, "owner");
+      requireGrantAuthority(principal);
       const type = input.type;
       if (!["user", "domain", "anyone"].includes(type) || !ROLES.has(input.role)) throw new Error("invalid permission");
       if (privateOnly && type !== "user") throw new Error("dogfood access must name an individual user");
@@ -102,7 +128,7 @@ export function createAccessController({ file, documentId, bootstrapOwner = "", 
       return data;
     },
     revoke(principal, id) {
-      requireRole(principal, "owner");
+      requireGrantAuthority(principal);
       const data = read(), before = data.permissions.length;
       data.permissions = data.permissions.filter((permission) => permission.id !== id);
       if (data.permissions.length === before) throw new Error("permission not found");

@@ -74,6 +74,11 @@ service host, oauth2.googleapis.com and www.google.com.
 - `write_slide`: create or rewrite a slide (a full HTML document with its text
   in `strings`); new slides go at `position` (0 = first).
 - `set_slide_order`: reorder slides, or leave some out to remove them.
+- `list_permissions` / `grant_permission` / `revoke_permission`: manage
+  sharing on your person's behalf — only when your person owns the deck.
+  You can grant or revoke viewer, commenter or editor; ownership itself is
+  never grantable, and every change is attributed to you (your person's
+  agent). If your person is not the owner, the server refuses.
 - `read_guidance` / `write_guidance`: the design guidance the editor checks against.
 - `write_editor_tool`: add a button to the browser editor's tool sidebar for your
   person; each person must enable it before it runs.

@@ -588,6 +588,15 @@ const mcpHandler = createDeckMcp({
     access.requireEdit(principal);
     return saveAgentTool({ name, code, remove, email: principal.email, author: agentAuthor(principal) });
   },
+  listPermissions({ principal }) {
+    return access.list(principal);
+  },
+  grantPermission({ principal, ...input }) {
+    return access.grant(principal, input);
+  },
+  revokePermission({ principal, id }) {
+    return access.revoke(principal, id);
+  },
   setSlideOrder({ slides, principal }) {
     access.requireEdit(principal);
     const manifest = readManifest();

@@ -98,7 +98,14 @@ protected-resource metadata lives at
 `/.well-known/oauth-protected-resource/mcp/d/<documentId>`. Tools:
 `get_presentation`, `read_slide`, `read_styles`, `read_guidance`,
 `update_catalog_text` (optimistic expected-value check), `write_slide`,
-`set_slide_order`, `write_guidance`, `write_editor_tool`.
+`set_slide_order`, `write_guidance`, `write_editor_tool`, and the sharing
+triple `list_permissions` / `grant_permission` / `revoke_permission`:
+sharing authority belongs to the document owner, and an agent may exercise
+it on their behalf only when its person is the owner — viewer/commenter/
+editor grants and revokes, never ownership, every change attributed.
+
+Agents act for a person, capped at editor, and never inherit
+ownership.
 
 A standalone connector (`engine/agent.mjs`) signs a person in with Google
 device sign-in and runs as a stdio MCP server spanning every deck shared with
