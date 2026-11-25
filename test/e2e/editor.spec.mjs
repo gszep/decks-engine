@@ -163,7 +163,9 @@ test("frames, minimum sizes, canceled gestures and locale-only resizing", async 
   const box = page.frameLocator("#frame").locator(".resize-box");
   // Edges work before selection as well as through the visible handles.
   const r = await box.boundingBox();
-  await page.mouse.move(r.x + r.width, r.y + r.height / 2);
+  // The exact right boundary is outside the DOM hit-test rectangle on some
+  // device scales. Exercise the same edge zone one CSS pixel inside it.
+  await page.mouse.move(r.x + r.width - 1, r.y + r.height / 2);
   await expect(box).toHaveCSS("cursor", "ew-resize");
   const before = await box.evaluate((el) => el.getAttribute("style"));
   await page.mouse.down();
