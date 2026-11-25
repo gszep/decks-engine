@@ -41,6 +41,7 @@ test("two users share presence, catalog text and a Monaco asset", async ({ brows
   expect(tools.result.tools.map((tool) => tool.name)).toEqual([
     "get_presentation", "read_slide", "update_catalog_text", "read_styles", "write_slide",
     "set_slide_order", "read_guidance", "write_guidance", "write_editor_tool",
+    "list_permissions", "grant_permission", "revoke_permission",
   ]);
   const presentation = await mcpCall("alice@example.com", "tools/call", { name: "get_presentation", arguments: {} });
   expect(JSON.parse(presentation.result.content[0].text).documentId).toBe("e2eDeckDocument0001");
