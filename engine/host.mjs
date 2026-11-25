@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Multi-document front door for hosted Decks.
 //
-// Discovers every manifest under DECKS_CONTENT_ROOT/decks, starts one isolated
-// edit.mjs process per document, and routes friendly /d/<documentId> viewer URLs
+// Discovers every manifest under DECKS_CONTENT_ROOT/decks, starts an isolated
+// edit.mjs process on first use of a document, and routes /d/<documentId> URLs
 // plus the existing /presentation/d/<documentId> editor URLs. The root is a
 // read-only index. Per-document child processes keep ACLs, Yjs state and source
 // materialisation isolated exactly as in the single-deck server.
@@ -59,9 +59,12 @@ if (!decks.length) {
 const preferred = byDocument.get(process.env.DECKS_DOCUMENT) || byDeck.get(process.env.DECKS_DOCUMENT) || decks[0];
 let stopping = false;
 
-const waitForPort = (port) => new Promise((resolve, reject) => {
+const waitForPort = (port, child) => new Promise((resolve, reject) => {
   const deadline = Date.now() + 60_000;
   const attempt = () => {
+    if (stopping || child.killed || child.exitCode !== null || child.signalCode !== null || child.startError) {
+      reject(new Error(`child on ${port} exited before becoming ready`)); return;
+    }
     const socket = net.connect(port, "127.0.0.1");
     socket.once("connect", () => { socket.destroy(); resolve(); });
     socket.once("error", () => {
@@ -74,34 +77,57 @@ const waitForPort = (port) => new Promise((resolve, reject) => {
 });
 
 let nextPort = CHILD_PORT_START;
-const startDeck = async (deck) => {
-  deck.port = nextPort++;
-  deck.child = spawn(process.execPath, [path.join(ROOT, "engine", "edit.mjs"), deck.documentId, "--host", "0.0.0.0", "--port", String(deck.port)], {
-    cwd: ROOT,
-    env: { ...process.env, PORT: String(deck.port), DECKS_DOCUMENT: deck.documentId },
-    stdio: ["ignore", "inherit", "inherit"],
-  });
-  deck.child.once("exit", (code, signal) => {
-    if (!stopping) {
-      console.error(`deck child ${deck.deckId} exited (${code ?? signal})`);
-      process.kill(process.pid, "SIGTERM");
-    }
-  });
-  await waitForPort(deck.port);
+let starting = 0;
+const startupQueue = [];
+const drainStartups = () => {
+  // Cold GCS mounts and collaboration hydration are expensive on a 1-vCPU
+  // service. Bound concurrent starts rather than forking every deck at boot.
+  while (starting < 2 && startupQueue.length) {
+    const { run, resolve, reject } = startupQueue.shift(); starting++;
+    Promise.resolve().then(run).then(resolve, reject).finally(() => { starting--; drainStartups(); });
+  }
+};
+const startupSlot = (run) => new Promise((resolve, reject) => {
+  startupQueue.push({ run, resolve, reject }); drainStartups();
+});
+const startDeck = (deck) => {
+  if (deck.ready) return Promise.resolve();
+  if (deck.starting) return deck.starting;
+  if (stopping || Date.now() < (deck.retryAt || 0)) return Promise.reject(new Error("deck startup temporarily unavailable"));
+  deck.starting = startupSlot(async () => {
+    if (stopping) throw new Error("host is stopping");
+    deck.port = nextPort++;
+    const child = spawn(process.execPath, [path.join(ROOT, "engine", "edit.mjs"), deck.documentId, "--host", "0.0.0.0", "--port", String(deck.port)], {
+      cwd: ROOT,
+      env: { ...process.env, PORT: String(deck.port), DECKS_DOCUMENT: deck.documentId },
+      stdio: ["ignore", "inherit", "inherit"],
+    });
+    deck.child = child;
+    child.once("error", error => { child.startError = error; });
+    child.once("exit", (code, signal) => {
+      if (deck.child === child) { deck.ready = false; deck.child = null; deck.retryAt = Date.now() + 2000; }
+      if (!stopping) console.error(`deck child ${deck.deckId} exited (${code ?? signal}); other documents remain available`);
+    });
+    await waitForPort(deck.port, child);
+    deck.ready = true; deck.retryAt = 0;
+  }).catch(error => {
+    deck.ready = false; deck.retryAt = Date.now() + 2000;
+    deck.child?.kill("SIGTERM");
+    if (!stopping) console.error(`deck startup failed for ${deck.deckId}: ${error.message}`);
+    throw error;
+  }).finally(() => { deck.starting = null; });
+  return deck.starting;
 };
 
 // Pick up decks added out-of-band (bucket seeds, API-created documents) and
-// start an isolated child for each new manifest.
+// register it immediately. Its isolated child starts only on a document request.
 const rescan = async () => {
   const fresh = readdirSync(deckRoot).map(discoverDeck).filter(Boolean);
   if (!fresh.length) return;
   for (const deck of fresh) { decks.push(deck); byDocument.set(deck.documentId, deck); byDeck.set(deck.deckId, deck); }
   decks.sort((a, b) => String(a.manifest.name).localeCompare(String(b.manifest.name)));
   console.log(`discovered ${fresh.length} new deck(s): ${fresh.map((deck) => deck.deckId).join(", ")}`);
-  await Promise.all(fresh.map(startDeck));
 };
-
-await Promise.all(decks.map(startDeck));
 
 const documentFromPath = (pathname) => {
   const match = pathname.match(/^\/(?:d|presentation\/d|mcp\/d)\/([A-Za-z0-9_-]{12,128})(?:\/|$)/);
@@ -209,7 +235,10 @@ const server = createServer(async (req, res) => {
     catch (error) { if (!res.headersSent) res.writeHead(500); res.end(String(error.message || error)); return; }
   }
   if (req.method === "GET" && url.pathname === "/healthz") {
-    res.writeHead(200, { "content-type": "application/json" }); res.end(JSON.stringify({ ok: true, documents: decks.length })); return;
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, documents: decks.length,
+      readyDocuments: decks.filter(deck => deck.ready).length,
+      startingDocuments: decks.filter(deck => deck.starting).length })); return;
   }
   if (req.method === "GET" && url.pathname === "/") {
     const identity = authenticator?.principal(req);
@@ -270,12 +299,22 @@ const server = createServer(async (req, res) => {
     const query = new URLSearchParams(url.searchParams); query.set("mode", "present");
     target = `/presentation/d/${deck.documentId}?${query}`; setCookie = true;
   } else if (url.pathname === `/presentation/d/${deck.documentId}`) setCookie = true;
+  try { await startDeck(deck); }
+  catch {
+    res.writeHead(503, { "content-type": "text/plain; charset=utf-8", "retry-after": "2" });
+    res.end("This deck is temporarily unavailable. Other decks remain available."); return;
+  }
+  if (res.destroyed) return;
   proxyHttp(req, res, deck, target, setCookie);
 });
 
-server.on("upgrade", (req, socket, head) => {
+server.on("upgrade", async (req, socket, head) => {
+  socket.on("error", () => socket.destroy());
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const deck = routeDeck(req, url.pathname);
+  try { await startDeck(deck); }
+  catch { if (!socket.destroyed) socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nRetry-After: 2\r\n\r\n"); return; }
+  if (socket.destroyed) return;
   const upstream = net.connect(deck.port, "127.0.0.1", () => {
     const headers = Object.entries({ ...req.headers, host: `127.0.0.1:${deck.port}` }).map(([key, value]) => `${key}: ${value}`).join("\r\n");
     upstream.write(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n${headers}\r\n\r\n`);
@@ -293,8 +332,10 @@ const shutdown = async () => {
   if (stopping) return;
   stopping = true;
   server.close();
-  for (const deck of decks) deck.child?.kill("SIGTERM");
-  await Promise.all(decks.map((deck) => new Promise((resolve) => deck.child?.once("exit", resolve) || resolve())));
+  const children = decks.map(deck => deck.child).filter(child => child?.pid && child.exitCode === null && child.signalCode === null);
+  const closed = children.map(child => new Promise(resolve => child.once("exit", resolve)));
+  for (const child of children) child.kill("SIGTERM");
+  await Promise.all(closed);
   process.exit(0);
 };
 process.on("SIGINT", shutdown);

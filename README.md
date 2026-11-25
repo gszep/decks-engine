@@ -77,6 +77,17 @@ WebSocket handshake is authorized server-side; private hosting fails closed
 without identity headers (Google IAP is supported end to end). Anyone signed
 in can create a deck they own; agents get `create_deck` through the connector.
 
+Document workers start lazily on the first HTTP or WebSocket request, with at
+most two cold starts in parallel. Concurrent requests for one document share
+its startup. The front door, `/healthz` and authenticated `/agents/decks` do not
+wait for unused document workers. A worker that fails to start or exits affects
+only its document (503 with a short retry interval), rather than terminating
+the whole host. This matters for mounted content roots: an unavailable theme or
+slow asset traversal in one document must not take agent discovery offline.
+`/healthz` reports total, ready and starting document counts without exposing
+document contents. Per-document ACL and collaboration authentication remain in
+the child process.
+
 On public view-only hosts, decks can be gated: the host-wide
 `DECKS_VIEW_PASSWORD` applies to every listed deck, and a deck's **owner may
 set a per-deck view password** (editor → Share → *Public talks site*; stored
